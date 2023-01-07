@@ -111,4 +111,9 @@ static inline void mp_hal_pin_write(mp_hal_pin_obj_t pin, int v) {
     gpio_set_level(pin, v);
 }
 
+// C-level SPI HAL
+// this returns a spi handle
+#include "driver/spi_master.h"
+spi_device_handle_t machine_hw_spi_get_handle(mp_obj_t spi_in);
+
 #endif // INCLUDED_MPHALPORT_H

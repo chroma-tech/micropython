@@ -32,8 +32,8 @@
 
 #include "esp_idf_version.h"
 
-// LAN only for ESP32 (not ESP32S2) and only for ESP-IDF v4.1 and higher
-#if (ESP_IDF_VERSION_MAJOR == 4) && (ESP_IDF_VERSION_MINOR >= 1) && (CONFIG_IDF_TARGET_ESP32)
+// LAN only for ESP-IDF v4.1 and higher
+#if (ESP_IDF_VERSION_MAJOR == 4) && (ESP_IDF_VERSION_MINOR >= 1)
 
 #include "esp_eth.h"
 #include "esp_eth_mac.h"
@@ -53,6 +53,7 @@ typedef struct _lan_if_obj_t {
     int8_t phy_power_pin;
     uint8_t phy_addr;
     uint8_t phy_type;
+    uint8_t int_pin;  // for SPI LAN
     esp_eth_phy_t *phy;
     esp_netif_t *eth_netif;
     esp_eth_handle_t eth_handle;
@@ -90,6 +91,7 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
+
 STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     lan_if_obj_t *self = &lan_obj;
 
@@ -97,14 +99,20 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         return MP_OBJ_FROM_PTR(&lan_obj);
     }
 
-    enum { ARG_id, ARG_mdc, ARG_mdio, ARG_power, ARG_phy_addr, ARG_phy_type };
+    enum { ARG_id, ARG_power, ARG_phy_addr, ARG_phy_type, ARG_spi, ARG_int, ARG_mdc, ARG_mdio};
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_id,           MP_ARG_OBJ, {.u_obj = mp_const_none} },
-        { MP_QSTR_mdc,          MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ },
-        { MP_QSTR_mdio,         MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ },
         { MP_QSTR_power,        MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
         { MP_QSTR_phy_addr,     MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_INT },
         { MP_QSTR_phy_type,     MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_INT },
+
+        { MP_QSTR_spi,          MP_ARG_KW_ONLY, {.u_obj = mp_const_none} },
+        { MP_QSTR_int,          MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        
+        #if (CONFIG_IDF_TARGET_ESP32)
+        { MP_QSTR_mdc,          MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_mdio,         MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        #endif
     };
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
@@ -116,55 +124,94 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         }
     }
 
-    self->mdc_pin = machine_pin_get_id(args[ARG_mdc].u_obj);
-    self->mdio_pin = machine_pin_get_id(args[ARG_mdio].u_obj);
+    // we should have either mdc & mdio, or spi
+    bool valid_spi = (
+        args[ARG_spi].u_obj != mp_const_none &&
+        args[ARG_int].u_obj != mp_const_none);
+    #if (CONFIG_IDF_TARGET_ESP32)
+    bool valid_emac valid_emac = (
+        args[ARG_mdc].u_obj != mp_const_none &&
+        args[ARG_mdio].u_obj != mp_const_none)
+    if (valid_spi == valid_emac) {
+        mp_raise_ValueError(MP_ERROR_TEXT("must initialize with either spi (spi, int) or emac (mdc, mdio)"));
+    }
+    #else
+    if (!valid_spi) {
+        mp_raise_ValueError(MP_ERROR_TEXT("must initialize with valid SPI bus"));
+    }
+    #endif
+
     self->phy_power_pin = args[ARG_power].u_obj == mp_const_none ? -1 : machine_pin_get_id(args[ARG_power].u_obj);
 
-    if (args[ARG_phy_addr].u_int < 0x00 || args[ARG_phy_addr].u_int > 0x1f) {
-        mp_raise_ValueError(MP_ERROR_TEXT("invalid phy address"));
-    }
-    self->phy_addr = args[ARG_phy_addr].u_int;
-
-    if (args[ARG_phy_type].u_int != PHY_LAN8720 &&
-        args[ARG_phy_type].u_int != PHY_IP101 &&
-        args[ARG_phy_type].u_int != PHY_RTL8201 &&
-        #if ESP_IDF_VERSION_MINOR >= 3      // KSZ8041 is new in ESP-IDF v4.3
-        args[ARG_phy_type].u_int != PHY_KSZ8041 &&
-        #endif
-        args[ARG_phy_type].u_int != PHY_DP83848) {
-        mp_raise_ValueError(MP_ERROR_TEXT("invalid phy type"));
-    }
-
+    esp_eth_mac_t *mac = NULL;
     eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
-    mac_config.smi_mdc_gpio_num = self->mdc_pin;
-    mac_config.smi_mdio_gpio_num = self->mdio_pin;
-    esp_eth_mac_t *mac = esp_eth_mac_new_esp32(&mac_config);
-
     eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
     phy_config.phy_addr = self->phy_addr;
     phy_config.reset_gpio_num = self->phy_power_pin;
     self->phy = NULL;
 
-    switch (args[ARG_phy_type].u_int) {
-        case PHY_LAN8720:
-            self->phy = esp_eth_phy_new_lan8720(&phy_config);
-            break;
-        case PHY_IP101:
-            self->phy = esp_eth_phy_new_ip101(&phy_config);
-            break;
-        case PHY_RTL8201:
-            self->phy = esp_eth_phy_new_rtl8201(&phy_config);
-            break;
-        case PHY_DP83848:
-            self->phy = esp_eth_phy_new_dp83848(&phy_config);
-            break;
-        case PHY_KSZ8041:
+    #if (CONFIG_IDF_TARGET_ESP32)
+    // emac
+    if (valid_emac) {
+        self->mdc_pin = machine_pin_get_id(args[ARG_mdc].u_obj);
+        self->mdio_pin = machine_pin_get_id(args[ARG_mdio].u_obj);
+
+        if (args[ARG_phy_addr].u_int < 0x00 || args[ARG_phy_addr].u_int > 0x1f) {
+            mp_raise_ValueError(MP_ERROR_TEXT("invalid phy address"));
+        }
+        self->phy_addr = args[ARG_phy_addr].u_int;
+
+        if (args[ARG_phy_type].u_int != PHY_LAN8720 &&
+            args[ARG_phy_type].u_int != PHY_IP101 &&
+            args[ARG_phy_type].u_int != PHY_RTL8201 &&
             #if ESP_IDF_VERSION_MINOR >= 3      // KSZ8041 is new in ESP-IDF v4.3
-            self->phy = esp_eth_phy_new_ksz8041(&phy_config);
-            break;
+            args[ARG_phy_type].u_int != PHY_KSZ8041 &&
             #endif
-        default:
-            mp_raise_ValueError(MP_ERROR_TEXT("unknown phy"));
+            args[ARG_phy_type].u_int != PHY_DP83848) {
+            mp_raise_ValueError(MP_ERROR_TEXT("invalid phy type"));
+        }
+
+        mac_config.smi_mdc_gpio_num = self->mdc_pin;
+        mac_config.smi_mdio_gpio_num = self->mdio_pin;
+        mac = esp_eth_mac_new_esp32(&mac_config);
+
+        switch (args[ARG_phy_type].u_int) {
+            case PHY_LAN8720:
+                self->phy = esp_eth_phy_new_lan8720(&phy_config);
+                break;
+            case PHY_IP101:
+                self->phy = esp_eth_phy_new_ip101(&phy_config);
+                break;
+            case PHY_RTL8201:
+                self->phy = esp_eth_phy_new_rtl8201(&phy_config);
+                break;
+            case PHY_DP83848:
+                self->phy = esp_eth_phy_new_dp83848(&phy_config);
+                break;
+            case PHY_KSZ8041:
+                #if ESP_IDF_VERSION_MINOR >= 3      // KSZ8041 is new in ESP-IDF v4.3
+                self->phy = esp_eth_phy_new_ksz8041(&phy_config);
+                break;
+                #endif
+            default:
+                mp_raise_ValueError(MP_ERROR_TEXT("unknown phy"));
+        }
+    } // valid emac
+    #endif 
+
+    if (valid_spi) {
+        spi_device_handle_t spi_handle = machine_hw_spi_get_handle(args[ARG_spi].u_obj);
+        switch (args[ARG_phy_type].u_int) {
+            case PHY_DM9051: {
+                    eth_dm9051_config_t dm9051_config = ETH_DM9051_DEFAULT_CONFIG(spi_handle);
+                    dm9051_config.int_gpio_num = args[ARG_int].u_obj == mp_const_none ? -1 : machine_pin_get_id(args[ARG_int].u_obj);
+                    mac = esp_eth_mac_new_dm9051(&dm9051_config, &mac_config);
+                    self->phy = esp_eth_phy_new_dm9051(&phy_config);
+                }
+                break;
+            default:
+                mp_raise_ValueError(MP_ERROR_TEXT("phy type isn't SPI"));
+        }
     }
 
     if (esp_netif_init() != ESP_OK) {
