@@ -48,12 +48,12 @@ typedef struct _lan_if_obj_t {
     int if_id; // MUST BE FIRST to match wlan_if_obj_t
     bool initialized;
     bool active;
-    uint8_t mdc_pin;
-    uint8_t mdio_pin;
+    int8_t mdc_pin;
+    int8_t mdio_pin;
     int8_t phy_power_pin;
-    uint8_t phy_addr;
+    int8_t phy_addr;
     uint8_t phy_type;
-    uint8_t int_pin;  // for SPI LAN
+    int8_t int_pin;  // for SPI LAN
     esp_eth_phy_t *phy;
     esp_netif_t *eth_netif;
     esp_eth_handle_t eth_handle;
@@ -103,7 +103,7 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_id,           MP_ARG_OBJ, {.u_obj = mp_const_none} },
         { MP_QSTR_power,        MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
-        { MP_QSTR_phy_addr,     MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_INT },
+        { MP_QSTR_phy_addr,     MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
         { MP_QSTR_phy_type,     MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_INT },
 
         { MP_QSTR_spi,          MP_ARG_KW_ONLY, {.u_obj = mp_const_none} },
@@ -141,25 +141,26 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
     }
     #endif
 
-    self->phy_power_pin = args[ARG_power].u_obj == mp_const_none ? -1 : machine_pin_get_id(args[ARG_power].u_obj);
 
     esp_eth_mac_t *mac = NULL;
     eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
     eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
+    
+    if (args[ARG_phy_addr].u_int < -1 || args[ARG_phy_addr].u_int > 0x1f) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid phy address"));
+    }
+
+    self->phy_power_pin = args[ARG_power].u_obj == mp_const_none ? -1 : machine_pin_get_id(args[ARG_power].u_obj);
+    self->phy_addr = args[ARG_phy_addr].u_int;
+    self->phy = NULL;
     phy_config.phy_addr = self->phy_addr;
     phy_config.reset_gpio_num = self->phy_power_pin;
-    self->phy = NULL;
 
     #if (CONFIG_IDF_TARGET_ESP32)
     // emac
     if (valid_emac) {
         self->mdc_pin = machine_pin_get_id(args[ARG_mdc].u_obj);
         self->mdio_pin = machine_pin_get_id(args[ARG_mdio].u_obj);
-
-        if (args[ARG_phy_addr].u_int < 0x00 || args[ARG_phy_addr].u_int > 0x1f) {
-            mp_raise_ValueError(MP_ERROR_TEXT("invalid phy address"));
-        }
-        self->phy_addr = args[ARG_phy_addr].u_int;
 
         if (args[ARG_phy_type].u_int != PHY_LAN8720 &&
             args[ARG_phy_type].u_int != PHY_IP101 &&
