@@ -250,6 +250,13 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         }
     }
 
+    // set mac address for SPI ethernet modules
+    if (valid_spi) {
+        uint8_t mac[6] = {0};
+        esp_read_mac(mac, ESP_MAC_ETH);
+        esp_eth_ioctl(self->eth_handle, ETH_CMD_S_MAC_ADDR, mac);
+    }
+
     if (esp_netif_attach(self->eth_netif, esp_eth_new_netif_glue(self->eth_handle)) != ESP_OK) {
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("esp_netif_attach failed"));
     }
