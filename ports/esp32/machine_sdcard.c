@@ -124,6 +124,12 @@ STATIC mp_obj_t machine_sdcard_make_new(const mp_obj_type_t *type, size_t n_args
         ARG_mosi,
         ARG_sck,
         ARG_cs,
+        ARG_clk,
+        ARG_cmd,
+        ARG_d0,
+        ARG_d1,
+        ARG_d2,
+        ARG_d3,
         ARG_freq,
     };
     STATIC const mp_arg_t allowed_args[] = {
@@ -136,6 +142,13 @@ STATIC mp_obj_t machine_sdcard_make_new(const mp_obj_type_t *type, size_t n_args
         { MP_QSTR_mosi,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
         { MP_QSTR_sck,      MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
         { MP_QSTR_cs,       MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        // These are only needed if using SDMMC mode
+        { MP_QSTR_clk,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_cmd,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_d0,      MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_d1,      MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_d2,      MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_d3,      MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
         // freq is valid for both SPI and SDMMC interfaces
         { MP_QSTR_freq,     MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 20000000} },
     };
@@ -253,6 +266,15 @@ STATIC mp_obj_t machine_sdcard_make_new(const mp_obj_type_t *type, size_t n_args
 
         SET_CONFIG_PIN(slot_config, gpio_cd, ARG_cd);
         SET_CONFIG_PIN(slot_config, gpio_wp, ARG_wp);
+        
+        #if SOC_SDMMC_USE_GPIO_MATRIX
+        SET_CONFIG_PIN(slot_config, clk, ARG_clk);
+        SET_CONFIG_PIN(slot_config, cmd, ARG_cmd);
+        SET_CONFIG_PIN(slot_config, d0, ARG_d0);
+        SET_CONFIG_PIN(slot_config, d1, ARG_d1);
+        SET_CONFIG_PIN(slot_config, d2, ARG_d2);
+        SET_CONFIG_PIN(slot_config, d3, ARG_d3);
+        #endif
 
         int width = arg_vals[ARG_width].u_int;
         if (width == 1 || width == 4 || (width == 8 && slot_num == 0)) {
