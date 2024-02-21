@@ -74,14 +74,9 @@ typedef struct _machine_i2s_obj_t {
     mp_hal_pin_obj_t sck;
     mp_hal_pin_obj_t ws;
     mp_hal_pin_obj_t sd;
-<<<<<<< HEAD
     i2s_dir_t mode;
     i2s_data_bit_width_t bits;
-=======
     mp_hal_pin_obj_t mck;
-    int8_t mode;
-    i2s_bits_per_sample_t bits;
->>>>>>> 6d6de4c86 (lots of changes)
     format_t format;
     int32_t rate;
     int32_t ibuf;
@@ -363,12 +358,12 @@ static void mp_machine_i2s_init_helper(machine_i2s_obj_t *self, mp_arg_val_t *ar
     self->io_mode = BLOCKING;
     self->is_deinit = false;
 
-<<<<<<< HEAD
     if (mode == MICROPY_PY_MACHINE_I2S_CONSTANT_TX) {
         self->dma_buffer_status = DMA_MEMORY_NOT_FULL;
     } else { // rx
         self->dma_buffer_status = DMA_MEMORY_NOT_EMPTY;
-=======
+    }
+    
     i2s_config_t i2s_config;
     i2s_config.communication_format = I2S_COMM_FORMAT_STAND_I2S;
     i2s_config.mode = mode;
@@ -413,7 +408,6 @@ static void mp_machine_i2s_init_helper(machine_i2s_obj_t *self, mp_arg_val_t *ar
     } else { // TX
         pin_config.data_in_num = I2S_PIN_NO_CHANGE;
         pin_config.data_out_num = self->sd;
->>>>>>> 6d6de4c86 (lots of changes)
     }
 
     i2s_chan_config_t chan_config = I2S_CHANNEL_DEFAULT_CONFIG(self->i2s_id, I2S_ROLE_MASTER);
