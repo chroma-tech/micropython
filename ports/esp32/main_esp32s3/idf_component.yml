@@ -2,5 +2,14 @@
 dependencies:
   espressif/mdns: "~1.1.0"
   espressif/esp_tinyusb: "~1.0.0"
+  espressif/led_strip: ">=2.5.3"
   idf:
     version: ">=5.0.4"
+  bblanchon/arduinojson: "^7.0.3"
+  fastled:
+    git: https://github.com/chroma-tech/FastLED.git
+    version: a63e34a5c485391c5a6b7b5eddd4fea9719afcb7
+  canopy:
+    git: git@github.com:chroma-tech/canopy.git
+    version: e4c83888c5ffac5fd5e3fe88cebab2a229ec8994
+  #espressif/arduino-esp32: "3.0.0-alpha2"
