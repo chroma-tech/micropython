@@ -1,12 +1,14 @@
 from micropython import const
-from machine import Pin
-
+from machine import Pin, SDCard
+import os
 
 LED1_DATA = const(8)
 LED1_CLOCK = const(18)
 LED2_DATA = const(17)
-LED2_CLOCK = LED1_CLOCK  # this can be GPIO0, depending on solder bridge. Default is shared with LED1_CLOCK
+# led2 clock depends on solder bridge
+LED2_CLOCK_DEFAULT = LED1_CLOCK
 LED2_CLOCK_ALT = const(0)
+LED2_CLOCK = LED2_CLOCK_DEFAULT
 
 I2S_BCK = const(47)
 I2S_MCK = const(48)
@@ -30,3 +32,14 @@ NFC_BUSY = const(45)
 
 I2C_SDA = const(44)
 I2C_SCL = const(43)
+
+
+def sdcard():
+    return SDCard(
+        width=4, clk=SD_CLK, cmd=SD_CMD, d0=SD_D0, d1=SD_D1, d2=SD_D2, d3=SD_D3
+    )
+
+
+def mount_sdcard(path="/sd"):
+    sd = sdcard()
+    os.mount(sd, path)

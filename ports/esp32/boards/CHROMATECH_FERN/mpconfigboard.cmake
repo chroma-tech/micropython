@@ -21,3 +21,5 @@ if(MICROPY_BOARD_VARIANT STREQUAL "SPIRAM_OCT")
 endif()
 
 set(MICROPY_FROZEN_MANIFEST ${MICROPY_BOARD_DIR}/manifest.py)
+
+# list(APPEND USER_C_MODULES /Users/shlomo/projects/micropython/ports/esp32/usermodules/modcanopy/modcanopy.cmake)
