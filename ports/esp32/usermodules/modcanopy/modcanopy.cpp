@@ -8,9 +8,9 @@ extern "C" {
 #define FASTLED_NO_MCU
 #include <fastled.h>
 
-//#ifndef NO_QSTR
+// #ifndef NO_QSTR
 #include <canopy.h>
-//#endif
+// #endif
 
 // #ifndef COUNT
 // #define COUNT(x) (sizeof(x) / sizeof(x[0]))
@@ -22,6 +22,7 @@ extern "C" {
 
 typedef struct _canopy_pattern_obj_t {
   mp_obj_base_t base;
+  mp_obj_t params;
   std::unique_ptr<Pattern> pattern;
 } canopy_pattern_obj_t;
 
@@ -48,7 +49,16 @@ extern "C" mp_obj_t canopy_pattern_make_new(const mp_obj_type_t *type,
   self->base.type = &canopy_pattern_type;
   self->pattern = std::make_unique<Pattern>(Pattern::load(pattern_config));
 
-  ESP_LOGI("canopy", "Pattern loaded");
+  // create a params dict and load it with the params from the pattern
+  self->params = mp_obj_new_dict(0);
+  for (auto &scalar : self->pattern->params.scalars) {
+    if (scalar.second->isConstant()) {
+      mp_obj_dict_store(
+          self->params,
+          mp_obj_new_str(scalar.first.c_str(), scalar.first.size()),
+          mp_obj_new_float(scalar.second->value()));
+    }
+  }
 
   return MP_OBJ_FROM_PTR(self);
 }
@@ -58,6 +68,16 @@ extern "C" mp_obj_t canopy_pattern_deinit(mp_obj_t self_in) {
   ESP_LOGI("canopy", "Deinit pattern");
   self->pattern.reset();
   return mp_const_none;
+}
+
+extern "C" void canopy_pattern_attr(mp_obj_t self_in, qstr attr,
+                                    mp_obj_t *dest) {
+  canopy_pattern_obj_t *self = (canopy_pattern_obj_t *)self_in;
+  if (attr == MP_QSTR_params) {
+    dest[0] = self->params;
+  } else {
+    dest[0] = MP_OBJ_NULL;
+  }
 }
 
 extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
@@ -103,8 +123,7 @@ extern "C" mp_obj_t canopy_render() {
   return mp_const_none;
 }
 
-extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern,
-                                mp_obj_t params) {
+extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern) {
   if (leds == NULL) {
     return mp_const_none;
   }
@@ -142,23 +161,16 @@ extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern,
 
   // load params from params dict
   Params p;
-  if (params != mp_const_none) {
-    // mp_map_t *paramsMap = mp_obj_get_map(params);
-    // for (int i = 0; i < paramsMap->used; i++) {
-    //   mp_map_elem_t *elem = &paramsMap->table[i];
-    //   const char *key = mp_obj_str_get_str(elem->key);
-    //   // value can be a float or a string
-    //   if (mp_obj_is_float(elem->value)) {
-    //     p[key] = mp_obj_get_float(elem->value);
-    //   } else if (mp_obj_is_str(elem->value)) {
-    //     p[key] = mp_obj_str_get_str(elem->value);
-    //   }
-    // }
+  mp_map_t *paramsMap = mp_obj_dict_get_map(self->params);
+  for (int i = 0; i < paramsMap->used; i++) {
+    mp_map_elem_t *elem = &paramsMap->table[i];
+    const char *key = mp_obj_str_get_str(elem->key);
+    p.scalar(key)->value(mp_obj_get_float(elem->value));
   }
 
-  // alpha is a float
   float alphaValue = 1.0f;
-  Segment seg(&leds[channel * nLedsPerChannel + start], length, PixelMapping::linearMap(length));
+  Segment seg(&leds[channel * nLedsPerChannel + start], length,
+              PixelMapping::linearMap(length));
   self->pattern->render(seg, p, alphaValue);
 
   return mp_const_none;

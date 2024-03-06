@@ -11,5 +11,5 @@ dependencies:
     version: a276a4eef329bf2f355aa5a212c55461f8609a03
   canopy:
     git: git@github.com:chroma-tech/canopy.git
-    version: facf011748db516b998d5bb27ee280f49fa806a4
+    version: ed5ad54001ed3c506407d698549b0e83584ad0b6
   #espressif/arduino-esp32: "3.0.0-alpha2"
