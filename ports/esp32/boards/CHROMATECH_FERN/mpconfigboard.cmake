@@ -3,6 +3,7 @@ set(IDF_TARGET esp32s3)
 set(SDKCONFIG_DEFAULTS
     boards/sdkconfig.base
     boards/sdkconfig.usb
+    #boards/sdkconfig.msc
     boards/sdkconfig.ble
     boards/sdkconfig.spiram_sx
     boards/ESP32_GENERIC_S3/sdkconfig.board
@@ -21,5 +22,3 @@ if(MICROPY_BOARD_VARIANT STREQUAL "SPIRAM_OCT")
 endif()
 
 set(MICROPY_FROZEN_MANIFEST ${MICROPY_BOARD_DIR}/manifest.py)
-
-# list(APPEND USER_C_MODULES /Users/shlomo/projects/micropython/ports/esp32/usermodules/modcanopy/modcanopy.cmake)
