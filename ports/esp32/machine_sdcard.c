@@ -38,6 +38,10 @@
 #include "sdmmc_cmd.h"
 #include "esp_log.h"
 
+#if CONFIG_TINYUSB_MSC_ENABLED
+#include "tusb_msc_storage.h"
+#endif
+
 #define DEBUG 0
 #if DEBUG
 #define DEBUG_printf(...) ESP_LOGI("modsdcard", __VA_ARGS__)

@@ -74,8 +74,14 @@ typedef struct _machine_i2s_obj_t {
     mp_hal_pin_obj_t sck;
     mp_hal_pin_obj_t ws;
     mp_hal_pin_obj_t sd;
+<<<<<<< HEAD
     i2s_dir_t mode;
     i2s_data_bit_width_t bits;
+=======
+    mp_hal_pin_obj_t mck;
+    int8_t mode;
+    i2s_bits_per_sample_t bits;
+>>>>>>> 6d6de4c86 (lots of changes)
     format_t format;
     int32_t rate;
     int32_t ibuf;
@@ -309,6 +315,9 @@ static void mp_machine_i2s_init_helper(machine_i2s_obj_t *self, mp_arg_val_t *ar
     int8_t sck = args[ARG_sck].u_obj == MP_OBJ_NULL ? -1 : machine_pin_get_id(args[ARG_sck].u_obj);
     int8_t ws = args[ARG_ws].u_obj == MP_OBJ_NULL ? -1 : machine_pin_get_id(args[ARG_ws].u_obj);
     int8_t sd = args[ARG_sd].u_obj == MP_OBJ_NULL ? -1 : machine_pin_get_id(args[ARG_sd].u_obj);
+    #if MICROPY_PY_MACHINE_I2S_MCK
+    int8_t mck = args[ARG_mck].u_obj == MP_OBJ_NULL ? -1 : machine_pin_get_id(args[ARG_mck].u_obj);
+    #endif
 
     // is Mode valid?
     int8_t mode = args[ARG_mode].u_int;
@@ -340,6 +349,9 @@ static void mp_machine_i2s_init_helper(machine_i2s_obj_t *self, mp_arg_val_t *ar
     self->sck = sck;
     self->ws = ws;
     self->sd = sd;
+    #if MICROPY_PY_MACHINE_I2S_MCK
+    self->mck = mck;
+    #endif
     self->mode = mode;
     self->bits = bits;
     self->format = format;
@@ -351,10 +363,57 @@ static void mp_machine_i2s_init_helper(machine_i2s_obj_t *self, mp_arg_val_t *ar
     self->io_mode = BLOCKING;
     self->is_deinit = false;
 
+<<<<<<< HEAD
     if (mode == MICROPY_PY_MACHINE_I2S_CONSTANT_TX) {
         self->dma_buffer_status = DMA_MEMORY_NOT_FULL;
     } else { // rx
         self->dma_buffer_status = DMA_MEMORY_NOT_EMPTY;
+=======
+    i2s_config_t i2s_config;
+    i2s_config.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+    i2s_config.mode = mode;
+    i2s_config.bits_per_sample = get_dma_bits(mode, bits);
+    i2s_config.channel_format = get_dma_format(mode, format);
+    i2s_config.sample_rate = self->rate;
+    i2s_config.intr_alloc_flags = ESP_INTR_FLAG_LOWMED;
+    i2s_config.dma_desc_num = get_dma_buf_count(mode, bits, format, self->ibuf);
+    i2s_config.dma_frame_num = DMA_BUF_LEN_IN_I2S_FRAMES;
+    i2s_config.use_apll = false;
+    i2s_config.tx_desc_auto_clear = true;
+    i2s_config.fixed_mclk = 0;
+    i2s_config.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+    i2s_config.bits_per_chan = 0;
+
+    // I2S queue size equals the number of DMA buffers
+    check_esp_err(i2s_driver_install(self->i2s_id, &i2s_config, i2s_config.dma_desc_num, &self->i2s_event_queue));
+
+    // apply low-level workaround for bug in some ESP-IDF versions that swap
+    // the left and right channels
+    // https://github.com/espressif/esp-idf/issues/6625
+    #if CONFIG_IDF_TARGET_ESP32S3
+    REG_SET_BIT(I2S_TX_CONF_REG(self->i2s_id), I2S_TX_MSB_SHIFT);
+    REG_SET_BIT(I2S_TX_CONF_REG(self->i2s_id), I2S_RX_MSB_SHIFT);
+    #else
+    REG_SET_BIT(I2S_CONF_REG(self->i2s_id), I2S_TX_MSB_RIGHT);
+    REG_SET_BIT(I2S_CONF_REG(self->i2s_id), I2S_RX_MSB_RIGHT);
+    #endif
+
+    i2s_pin_config_t pin_config;
+    #if MICROPY_PY_MACHINE_I2S_MCK
+    pin_config.mck_io_num = self->mck;
+    #else
+    pin_config.mck_io_num = I2S_PIN_NO_CHANGE;
+    #endif
+    pin_config.bck_io_num = self->sck;
+    pin_config.ws_io_num = self->ws;
+
+    if (mode == (I2S_MODE_MASTER | I2S_MODE_RX)) {
+        pin_config.data_in_num = self->sd;
+        pin_config.data_out_num = I2S_PIN_NO_CHANGE;
+    } else { // TX
+        pin_config.data_in_num = I2S_PIN_NO_CHANGE;
+        pin_config.data_out_num = self->sd;
+>>>>>>> 6d6de4c86 (lots of changes)
     }
 
     i2s_chan_config_t chan_config = I2S_CHANNEL_DEFAULT_CONFIG(self->i2s_id, I2S_ROLE_MASTER);

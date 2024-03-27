@@ -31,9 +31,17 @@
 #if CONFIG_USB_OTG_SUPPORTED && !CONFIG_ESP_CONSOLE_USB_CDC && !CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 
 #include "esp_timer.h"
+#include "esp_log.h"
 #ifndef NO_QSTR
 #include "tinyusb.h"
 #include "tusb_cdc_acm.h"
+#include "tusb_console.h"
+#endif
+
+#if CONFIG_TINYUSB_MSC_ENABLED
+#include "tusb_msc_storage.h"
+#include "diskio_impl.h"
+#include "diskio_sdmmc.h"
 #endif
 
 #define CDC_ITF TINYUSB_CDC_ACM_0
@@ -63,8 +71,89 @@ static void usb_callback_rx(int itf, cdcacm_event_t *event) {
         mp_hal_wake_main_task();
     }
 }
+#if CONFIG_TINYUSB_MSC_ENABLED
+static esp_err_t storage_init_sdmmc(sdmmc_card_t **card)
+{
+    esp_err_t ret = ESP_OK;
+    bool host_init = false;
+    sdmmc_card_t *sd_card;
+
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot_config.width = 4;
+    slot_config.clk = 7;
+    slot_config.cmd = 6;
+    slot_config.d0 = 15;
+    slot_config.d1 = 16;
+    slot_config.d2 = 4;
+    slot_config.d3 = 5;
+
+    // Enable internal pullups on enabled pins. The internal pullups
+    // are insufficient however, please make sure 10k external pullups are
+    // connected on the bus. This is for debug / example purpose only.
+    slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+    // not using ff_memalloc here, as allocation in internal RAM is preferred
+    sd_card = (sdmmc_card_t *)malloc(sizeof(sdmmc_card_t));
+    if (NULL == sd_card) {
+        ret = ESP_ERR_NO_MEM;
+        goto clean;
+    }
+
+    ret = host.init();
+    if (ret != ESP_OK) {
+        goto clean;
+    }
+
+    host_init = true;
+
+    ret = sdmmc_host_init_slot(host.slot, (const sdmmc_slot_config_t *) &slot_config);
+    if (ret != ESP_OK) {
+        goto clean;
+    }
+
+    while (sdmmc_card_init(&host, sd_card)) {
+        ESP_LOGE("usb", "The detection pin of the slot is disconnected(Insert uSD card). Retrying...");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+
+    // Card has been initialized, print its properties
+    //sdmmc_card_print_info(stdout, sd_card);
+    *card = sd_card;
+
+    return ESP_OK;
+    goto clean;
+
+clean:
+    if (host_init) {
+        if (host.flags & SDMMC_HOST_FLAG_DEINIT_ARG) {
+            host.deinit_p(host.slot);
+        } else {
+            (*host.deinit)();
+        }
+    }
+    if (sd_card) {
+        free(sd_card);
+        sd_card = NULL;
+    }
+    return ret;
+}
+#endif
 
 void usb_init(void) {
+    #if CONFIG_TINYUSB_MSC_ENABLED
+    // init SDMMC
+    ESP_LOGI("msc", "starting sdmmc");
+    sdmmc_card_t * card = NULL;
+    ESP_ERROR_CHECK(storage_init_sdmmc(&card));
+
+    const tinyusb_msc_sdmmc_config_t config_sdmmc = {
+        .card = card
+    };
+    ESP_LOGI("msc", "starting msc with sdmmc");
+    ESP_ERROR_CHECK(tinyusb_msc_storage_init_sdmmc(&config_sdmmc));
+    #endif
+
     // Initialise the USB with defaults.
     tinyusb_config_t tusb_cfg = {0};
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
@@ -87,6 +176,9 @@ void usb_init(void) {
     };
     ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
 
+    ESP_ERROR_CHECK(esp_tusb_init_console(CDC_ITF));
+
+    ESP_LOGI("usb", "inited");
 }
 
 void usb_tx_strn(const char *str, size_t len) {
