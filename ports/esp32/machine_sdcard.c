@@ -38,6 +38,10 @@
 #include "sdmmc_cmd.h"
 #include "esp_log.h"
 
+#if CONFIG_TINYUSB_MSC_ENABLED
+#include "tusb_msc_storage.h"
+#endif
+
 #define DEBUG 0
 #if DEBUG
 #define DEBUG_printf(...) ESP_LOGI("modsdcard", __VA_ARGS__)
@@ -453,6 +457,25 @@ STATIC mp_obj_t machine_sdcard_ioctl(mp_obj_t self_in, mp_obj_t cmd_in, mp_obj_t
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_3(machine_sdcard_ioctl_obj, machine_sdcard_ioctl);
 
+#if CONFIG_TINYUSB_MSC_ENABLED
+STATIC mp_obj_t machine_sdcard_mount_as_msc(mp_obj_t self_in) {
+    sdcard_card_obj_t *self = self_in;
+    esp_err_t err = ESP_OK;
+    err = sdcard_ensure_card_init(self_in, false);
+    if (err != ESP_OK) {
+        return false;
+    }
+
+    const tinyusb_msc_sdmmc_config_t config_sdmmc = {
+        .card = &self->card
+    };
+    ESP_ERROR_CHECK(tinyusb_msc_storage_init_sdmmc(&config_sdmmc));
+    return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_sdcard_mount_as_msc_obj, machine_sdcard_mount_as_msc);
+#endif
+
 STATIC const mp_rom_map_elem_t machine_sdcard_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&sd_info_obj) },
     { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&sd_deinit_obj) },
@@ -461,6 +484,9 @@ STATIC const mp_rom_map_elem_t machine_sdcard_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readblocks), MP_ROM_PTR(&machine_sdcard_readblocks_obj) },
     { MP_ROM_QSTR(MP_QSTR_writeblocks), MP_ROM_PTR(&machine_sdcard_writeblocks_obj) },
     { MP_ROM_QSTR(MP_QSTR_ioctl), MP_ROM_PTR(&machine_sdcard_ioctl_obj) },
+    #if CONFIG_TINYUSB_MSC_ENABLED
+    { MP_ROM_QSTR(MP_QSTR_mount_as_msc), MP_ROM_PTR(&machine_sdcard_mount_as_msc_obj) },
+    #endif
 };
 
 STATIC MP_DEFINE_CONST_DICT(machine_sdcard_locals_dict, machine_sdcard_locals_dict_table);

@@ -68,6 +68,7 @@ typedef struct _machine_i2s_obj_t {
     mp_hal_pin_obj_t sck;
     mp_hal_pin_obj_t ws;
     mp_hal_pin_obj_t sd;
+    mp_hal_pin_obj_t mck;
     int8_t mode;
     i2s_bits_per_sample_t bits;
     format_t format;
@@ -311,6 +312,9 @@ STATIC void mp_machine_i2s_init_helper(machine_i2s_obj_t *self, mp_arg_val_t *ar
     int8_t sck = args[ARG_sck].u_obj == MP_OBJ_NULL ? -1 : machine_pin_get_id(args[ARG_sck].u_obj);
     int8_t ws = args[ARG_ws].u_obj == MP_OBJ_NULL ? -1 : machine_pin_get_id(args[ARG_ws].u_obj);
     int8_t sd = args[ARG_sd].u_obj == MP_OBJ_NULL ? -1 : machine_pin_get_id(args[ARG_sd].u_obj);
+    #if MICROPY_PY_MACHINE_I2S_MCK
+    int8_t mck = args[ARG_mck].u_obj == MP_OBJ_NULL ? -1 : machine_pin_get_id(args[ARG_mck].u_obj);
+    #endif
 
     // is Mode valid?
     i2s_mode_t mode = args[ARG_mode].u_int;
@@ -342,6 +346,9 @@ STATIC void mp_machine_i2s_init_helper(machine_i2s_obj_t *self, mp_arg_val_t *ar
     self->sck = sck;
     self->ws = ws;
     self->sd = sd;
+    #if MICROPY_PY_MACHINE_I2S_MCK
+    self->mck = mck;
+    #endif
     self->mode = mode;
     self->bits = bits;
     self->format = format;
@@ -383,7 +390,11 @@ STATIC void mp_machine_i2s_init_helper(machine_i2s_obj_t *self, mp_arg_val_t *ar
     #endif
 
     i2s_pin_config_t pin_config;
+    #if MICROPY_PY_MACHINE_I2S_MCK
+    pin_config.mck_io_num = self->mck;
+    #else
     pin_config.mck_io_num = I2S_PIN_NO_CHANGE;
+    #endif
     pin_config.bck_io_num = self->sck;
     pin_config.ws_io_num = self->ws;
 

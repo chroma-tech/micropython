@@ -2,10 +2,11 @@ extern "C" {
 #include "modcanopy.h"
 }
 
-#define NUMSTRIPS 2
-#include "I2SClocklessDriver.h"
-#include <cstdint>
+// #define NUMSTRIPS 2
+// #include "I2SClocklessDriver.h"
+// #include <cstdint>
 #define FASTLED_NO_MCU
+#include "driver.h"
 #include <fastled.h>
 
 // #ifndef NO_QSTR
@@ -26,7 +27,13 @@ typedef struct _canopy_pattern_obj_t {
   std::unique_ptr<Pattern> pattern;
 } canopy_pattern_obj_t;
 
-I2SClocklessLedDriveresp32S3 leddriver;
+typedef struct _canopy_segment_obj_t {
+  mp_obj_base_t base;
+  Segment segment;
+} canopy_segment_obj_t;
+
+S3ClocklessDriver leddriver;
+CRGBOut out;
 CRGB *leds = NULL;
 size_t nChannels = 0;
 size_t nLedsPerChannel = 0;
@@ -49,6 +56,11 @@ extern "C" mp_obj_t canopy_pattern_make_new(const mp_obj_type_t *type,
   self->base.type = &canopy_pattern_type;
   self->pattern = std::make_unique<Pattern>(Pattern::load(pattern_config));
 
+  // printf("Pattern %s has %d layers, %d scalars, %d palettes\n",
+  //        self->pattern->name.c_str(), self->pattern->layers.size(),
+  //        self->pattern->params.scalars.size(),
+  //        self->pattern->params.palettes.size());
+
   // create a params dict and load it with the params from the pattern
   self->params = mp_obj_new_dict(0);
   for (auto &scalar : self->pattern->params.scalars) {
@@ -65,7 +77,6 @@ extern "C" mp_obj_t canopy_pattern_make_new(const mp_obj_type_t *type,
 
 extern "C" mp_obj_t canopy_pattern_deinit(mp_obj_t self_in) {
   canopy_pattern_obj_t *self = (canopy_pattern_obj_t *)self_in;
-  ESP_LOGI("canopy", "Deinit pattern");
   self->pattern.reset();
   return mp_const_none;
 }
@@ -83,6 +94,16 @@ extern "C" void canopy_pattern_attr(mp_obj_t self_in, qstr attr,
 extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
   ESP_LOGI("canopy", "Init");
 
+  static bool initialized = false;
+  if (initialized) {
+    if (leds != NULL) {
+      free(leds);
+      leds = NULL;
+    }
+    leddriver.end();
+    initialized = false;
+  }
+
   // pins should be iterable, ledsPerChannel a number
   // make sure pins is iterable
 
@@ -98,12 +119,12 @@ extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
   nLedsPerChannel = mp_obj_get_int(ledsPerChannel);
 
   // allocate backbuffer
-  printf("Allocating leds %d LEDs %d bytes\n", nChannels * nLedsPerChannel,
-         3 * nChannels * nLedsPerChannel);
   leds = (CRGB *)malloc(3 * nChannels * nLedsPerChannel);
 
   // init
-  leddriver.initled((uint8_t *)leds, pinArray, nChannels, nLedsPerChannel);
+  leddriver.begin(pinArray, nChannels, nLedsPerChannel);
+  initialized = true;
+
   return mp_const_none;
 }
 
@@ -119,7 +140,7 @@ extern "C" mp_obj_t canopy_render() {
   if (leds == NULL) {
     return mp_const_none;
   }
-  leddriver.show();
+  leddriver.show((uint8_t *)leds, out);
   return mp_const_none;
 }
 
@@ -162,10 +183,14 @@ extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern) {
   // load params from params dict
   Params p;
   mp_map_t *paramsMap = mp_obj_dict_get_map(self->params);
-  for (int i = 0; i < paramsMap->used; i++) {
-    mp_map_elem_t *elem = &paramsMap->table[i];
-    const char *key = mp_obj_str_get_str(elem->key);
-    p.scalar(key)->value(mp_obj_get_float(elem->value));
+
+  for (size_t i = 0; i < paramsMap->alloc; i++) {
+    if (mp_map_slot_is_filled(paramsMap, i)) {
+      mp_map_elem_t *elem = &(paramsMap->table[i]);
+      const char *key = mp_obj_str_get_str(elem->key);
+      float val = mp_obj_get_float(elem->value);
+      p.scalar(key)->value(mp_obj_get_float(elem->value));
+    }
   }
 
   float alphaValue = 1.0f;
