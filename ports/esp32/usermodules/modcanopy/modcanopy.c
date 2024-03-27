@@ -1,6 +1,8 @@
 #include "modcanopy.h"
 #include "py/runtime.h"
 
+// canopy Pattern object
+
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(canopy_pattern_deinit_obj,
                                  canopy_pattern_deinit);
 
@@ -15,6 +17,10 @@ MP_DEFINE_CONST_OBJ_TYPE(canopy_pattern_type, MP_QSTR_Pattern,
                          MP_TYPE_FLAG_NONE, make_new, canopy_pattern_make_new,
                          attr, canopy_pattern_attr, locals_dict,
                          &canopy_pattern_locals_dict);
+
+// Canopy Segment object
+
+// canopy module
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(canopy_init_obj, canopy_init);
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(canopy_clear_obj, canopy_clear);
