@@ -11,10 +11,4 @@ dependencies:
     version: a276a4eef329bf2f355aa5a212c55461f8609a03
   canopy:
     git: git@github.com:chroma-tech/canopy.git
-    version: f06877b14fe5a538aabb4c82cf5c5284bb9b4aa4
-  libfixmath:
-    git: https://github.com/PetteriAimonen/libfixmath
-    version: d308e466e1a09118d03f677c52e5fbf402f6fdd0
-    #version: 259da57b34dea300bafabfaef226772cb013c629
-    #version: ed5ad54001ed3c506407d698549b0e83584ad0b6
-  #espressif/arduino-esp32: "3.0.0-alpha2"
+    version: 0c8634c5147155c9a459644d1ce4c1f76900dc4e
