@@ -29,7 +29,7 @@ typedef struct _canopy_pattern_obj_t {
 
 typedef struct _canopy_segment_obj_t {
   mp_obj_base_t base;
-  Segment segment;
+  std::unique_ptr<Segment> segment;
 } canopy_segment_obj_t;
 
 S3ClocklessDriver leddriver;
@@ -39,6 +39,7 @@ size_t nChannels = 0;
 size_t nLedsPerChannel = 0;
 
 extern "C" const mp_obj_type_t canopy_pattern_type;
+extern "C" const mp_obj_type_t canopy_segment_type;
 
 extern "C" mp_obj_t canopy_pattern_make_new(const mp_obj_type_t *type,
                                             size_t n_args, size_t n_kw,
@@ -91,6 +92,51 @@ extern "C" void canopy_pattern_attr(mp_obj_t self_in, qstr attr,
   }
 }
 
+extern "C" mp_obj_t canopy_segment_make_new(const mp_obj_type_t *type,
+                                            size_t n_args, size_t n_kw,
+                                            const mp_obj_t *args) {
+
+  if (n_args < 3) {
+    mp_raise_TypeError(
+        "expected at least 3 arguments (channel, start, length)");
+  }
+
+  if (leds == NULL) {
+    mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
+  }
+
+  int channel = mp_obj_get_int(args[0]);
+  int start = mp_obj_get_int(args[1]);
+  int length = mp_obj_get_int(args[2]);
+
+  // make sure segment is valid
+  if (channel < 0 || channel >= nChannels) {
+    mp_raise_ValueError("channel out of range");
+  }
+
+  if (start < 0 || start >= nLedsPerChannel) {
+    mp_raise_ValueError("start out of range");
+  }
+
+  if (length < 0 || start + length > nLedsPerChannel) {
+    mp_raise_ValueError("length out of range");
+  }
+
+  canopy_segment_obj_t *self = m_new_obj_with_finaliser(canopy_segment_obj_t);
+  self->base.type = &canopy_segment_type;
+  self->segment =
+      std::make_unique<Segment>(&leds[channel * nLedsPerChannel + start],
+                                length, PixelMapping::linearMap(length));
+
+  return MP_OBJ_FROM_PTR(self);
+}
+
+extern "C" mp_obj_t canopy_segment_deinit(mp_obj_t self_in) {
+  canopy_segment_obj_t *self = (canopy_segment_obj_t *)self_in;
+  self->segment.reset();
+  return mp_const_none;
+}
+
 extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
   ESP_LOGI("canopy", "Init");
 
@@ -130,7 +176,7 @@ extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
 
 extern "C" mp_obj_t canopy_clear() {
   if (leds == NULL) {
-    return mp_const_none;
+    mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
   }
   memset(leds, 0, 3 * nChannels * nLedsPerChannel);
   return mp_const_none;
@@ -138,65 +184,42 @@ extern "C" mp_obj_t canopy_clear() {
 
 extern "C" mp_obj_t canopy_render() {
   if (leds == NULL) {
-    return mp_const_none;
+    mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
   }
   leddriver.show((uint8_t *)leds, out);
   return mp_const_none;
 }
 
-extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern) {
+extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern, mp_obj_t alpha) {
   if (leds == NULL) {
-    return mp_const_none;
+    mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
   }
 
-  // segment is tuple of (channel, start, length)
-
-  mp_obj_t *segmentItems;
-  size_t segmentElemCount;
-  mp_obj_get_array(segment, &segmentElemCount, &segmentItems);
-
-  // verify number of elements in tuple
-  if (3 != segmentElemCount) {
-    mp_raise_ValueError("segment should be (channel, start, length)");
-  }
-
-  int channel = mp_obj_get_int(segmentItems[0]);
-  int start = mp_obj_get_int(segmentItems[1]);
-  int length = mp_obj_get_int(segmentItems[2]);
-
-  // make sure segment is valid
-  if (channel < 0 || channel >= nChannels) {
-    mp_raise_ValueError("channel out of range");
-  }
-
-  if (start < 0 || start >= nLedsPerChannel) {
-    mp_raise_ValueError("start out of range");
-  }
-
-  if (length < 0 || start + length > nLedsPerChannel) {
-    mp_raise_ValueError("length out of range");
-  }
+  // segment is a Segment object
+  canopy_segment_obj_t *segment_obj = (canopy_segment_obj_t *)segment;
 
   // pattern is a Pattern object
-  canopy_pattern_obj_t *self = (canopy_pattern_obj_t *)pattern;
+  canopy_pattern_obj_t *pattern_obj = (canopy_pattern_obj_t *)pattern;
+
+  // alpha is float with default of 1.0
+  float alphaValue = mp_obj_get_float(alpha);
 
   // load params from params dict
   Params p;
-  mp_map_t *paramsMap = mp_obj_dict_get_map(self->params);
+  mp_map_t *params = mp_obj_dict_get_map(pattern_obj->params);
 
-  for (size_t i = 0; i < paramsMap->alloc; i++) {
-    if (mp_map_slot_is_filled(paramsMap, i)) {
-      mp_map_elem_t *elem = &(paramsMap->table[i]);
+  for (size_t i = 0; i < params->alloc; i++) {
+    if (mp_map_slot_is_filled(params, i)) {
+      mp_map_elem_t *elem = &(params->table[i]);
       const char *key = mp_obj_str_get_str(elem->key);
       float val = mp_obj_get_float(elem->value);
       p.scalar(key)->value(mp_obj_get_float(elem->value));
     }
   }
 
-  float alphaValue = 1.0f;
-  Segment seg(&leds[channel * nLedsPerChannel + start], length,
-              PixelMapping::linearMap(length));
-  self->pattern->render(seg, p, alphaValue);
+  if (alphaValue > 0.0) {
+    pattern_obj->pattern->render(*(segment_obj->segment), p, alphaValue);
+  }
 
   return mp_const_none;
 }
