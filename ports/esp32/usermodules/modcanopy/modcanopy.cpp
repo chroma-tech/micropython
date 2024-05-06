@@ -126,7 +126,7 @@ extern "C" mp_obj_t canopy_segment_make_new(const mp_obj_type_t *type,
   self->base.type = &canopy_segment_type;
   self->segment =
       std::make_unique<Segment>(&leds[channel * nLedsPerChannel + start],
-                                length, PixelMapping::linearMap(length));
+                                length, PixelMapping16::linearMap(length));
 
   return MP_OBJ_FROM_PTR(self);
 }
@@ -138,8 +138,6 @@ extern "C" mp_obj_t canopy_segment_deinit(mp_obj_t self_in) {
 }
 
 extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
-  ESP_LOGI("canopy", "Init");
-
   static bool initialized = false;
   if (initialized) {
     if (leds != NULL) {
@@ -190,7 +188,8 @@ extern "C" mp_obj_t canopy_render() {
   return mp_const_none;
 }
 
-extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern, mp_obj_t alpha) {
+extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern,
+                                mp_obj_t alpha) {
   if (leds == NULL) {
     mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
   }
@@ -221,5 +220,23 @@ extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern, mp_obj_t alp
     pattern_obj->pattern->render(*(segment_obj->segment), p, alphaValue);
   }
 
+  return mp_const_none;
+}
+
+extern "C" mp_obj_t canopy_get_brightness(mp_obj_t self_in) {
+  return mp_obj_new_float(out.brightness / 255.0);
+}
+
+extern "C" mp_obj_t canopy_set_brightness(mp_obj_t self_in,
+                                          mp_obj_t brightness) {
+  float b = mp_obj_get_float(brightness);
+  if (b > 1.0) {
+    b = 1.0;
+  }
+  if (b < 0.0) {
+    b = 0.0f;
+  }
+
+  out.brightness = b * 255;
   return mp_const_none;
 }

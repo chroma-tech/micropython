@@ -17,3 +17,5 @@ extern mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel);
 extern mp_obj_t canopy_render();
 extern mp_obj_t canopy_clear();
 extern mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern, mp_obj_t alpha);
+extern mp_obj_t canopy_get_brightness(mp_obj_t self_in);
+extern mp_obj_t canopy_set_brightness(mp_obj_t self_in, mp_obj_t brightness);
