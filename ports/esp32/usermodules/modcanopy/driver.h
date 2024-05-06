@@ -115,8 +115,8 @@ struct CRGBOut {
   CRGB ApplyRGB(CRGB &in) {
     CRGB out;
     out.raw[order.r] = gamma_r.lut8[in.r];
-    out.raw[order.g] = gamma_r.lut8[in.g];
-    out.raw[order.b] = gamma_r.lut8[in.b];
+    out.raw[order.g] = gamma_g.lut8[in.g];
+    out.raw[order.b] = gamma_b.lut8[in.b];
     return out % brightness;
   }
 };
