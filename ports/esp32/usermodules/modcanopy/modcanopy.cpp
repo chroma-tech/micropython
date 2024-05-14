@@ -32,6 +32,11 @@ typedef struct _canopy_segment_obj_t {
   std::unique_ptr<Segment> segment;
 } canopy_segment_obj_t;
 
+typedef struct _canopy_params_obj_t {
+  mp_obj_base_t base;
+  std::unique_ptr<Params> params;
+} canopy_params_obj_t;
+
 S3ClocklessDriver leddriver;
 CRGBOut out;
 CRGB *leds = NULL;
@@ -40,6 +45,7 @@ size_t nLedsPerChannel = 0;
 
 extern "C" const mp_obj_type_t canopy_pattern_type;
 extern "C" const mp_obj_type_t canopy_segment_type;
+extern "C" const mp_obj_type_t canopy_params_type;
 
 extern "C" mp_obj_t canopy_pattern_make_new(const mp_obj_type_t *type,
                                             size_t n_args, size_t n_kw,
@@ -137,6 +143,114 @@ extern "C" mp_obj_t canopy_segment_deinit(mp_obj_t self_in) {
   return mp_const_none;
 }
 
+extern "C" mp_obj_t canopy_params_make_new(const mp_obj_type_t *type,
+                                           size_t n_args, size_t n_kw,
+                                           const mp_obj_t *args) {
+  canopy_params_obj_t *self = m_new_obj(canopy_params_obj_t);
+  self->base.type = type;
+
+  self->params = std::make_unique<Params>();
+
+  // if we have a dict, load it into the params
+  if (n_args == 1) {
+    mp_map_t *params = mp_obj_dict_get_map(args[0]);
+    if (params != NULL) {
+      for (size_t i = 0; i < params->alloc; i++) {
+        if (mp_map_slot_is_filled(params, i)) {
+          mp_map_elem_t *elem = &(params->table[i]);
+          const char *key = mp_obj_str_get_str(elem->key);
+          float val = mp_obj_get_float(elem->value);
+          self->params->scalar(key)->value(val);
+        }
+      }
+    }
+  }
+
+  return MP_OBJ_FROM_PTR(self);
+}
+
+extern "C" mp_obj_t canopy_params_deinit(mp_obj_t self_in) {
+  canopy_params_obj_t *self = (canopy_params_obj_t *)self_in;
+  self->params.reset();
+  return mp_const_none;
+}
+
+// keys() method
+extern "C" mp_obj_t canopy_params_keys(mp_obj_t self_in) {
+  canopy_params_obj_t *self = (canopy_params_obj_t *)MP_OBJ_TO_PTR(self_in);
+  mp_obj_list_t *keys =
+      (mp_obj_list_t *)MP_OBJ_TO_PTR(mp_obj_new_list(0, NULL));
+  for (const auto &pair : self->params->scalars) {
+    mp_obj_list_append(MP_OBJ_FROM_PTR(keys),
+                       mp_obj_new_str(pair.first.c_str(), pair.first.size()));
+  }
+  return MP_OBJ_FROM_PTR(keys);
+}
+
+// values() method
+extern "C" mp_obj_t canopy_params_values(mp_obj_t self_in) {
+  canopy_params_obj_t *self = (canopy_params_obj_t *)MP_OBJ_TO_PTR(self_in);
+  mp_obj_list_t *values =
+      (mp_obj_list_t *)MP_OBJ_TO_PTR(mp_obj_new_list(0, NULL));
+  for (const auto &pair : self->params->scalars) {
+    mp_obj_list_append(MP_OBJ_FROM_PTR(values),
+                       mp_obj_new_float(pair.second->value()));
+  }
+  return MP_OBJ_FROM_PTR(values);
+}
+
+// items() method
+extern "C" mp_obj_t canopy_params_items(mp_obj_t self_in) {
+  canopy_params_obj_t *self = (canopy_params_obj_t *)MP_OBJ_TO_PTR(self_in);
+  mp_obj_list_t *items =
+      (mp_obj_list_t *)MP_OBJ_TO_PTR(mp_obj_new_list(0, NULL));
+  for (const auto &pair : self->params->scalars) {
+    mp_obj_tuple_t *tuple =
+        (mp_obj_tuple_t *)MP_OBJ_TO_PTR(mp_obj_new_tuple(2, NULL));
+    tuple->items[0] = mp_obj_new_str(pair.first.c_str(), pair.first.size());
+    tuple->items[1] = mp_obj_new_float(pair.second->value());
+    mp_obj_list_append(MP_OBJ_FROM_PTR(items), MP_OBJ_FROM_PTR(tuple));
+  }
+  return MP_OBJ_FROM_PTR(items);
+}
+
+// contains() method
+extern "C" mp_obj_t canopy_params_contains(mp_obj_t self_in, mp_obj_t key) {
+  canopy_params_obj_t *self = (canopy_params_obj_t *)MP_OBJ_TO_PTR(self_in);
+  const char *scalarkey = mp_obj_str_get_str(key);
+  if (self->params->scalars.find(scalarkey) != self->params->scalars.end()) {
+    return mp_const_true;
+  }
+  return mp_const_false;
+}
+
+extern "C" mp_obj_t canopy_params_subscr(mp_obj_t self_in, mp_obj_t index,
+                                         mp_obj_t value) {
+  canopy_params_obj_t *self = (canopy_params_obj_t *)MP_OBJ_TO_PTR(self_in);
+  const char *key = mp_obj_str_get_str(index);
+
+  if (value == MP_OBJ_NULL) {
+    // Delete item
+    auto it = self->params->scalars.find(key);
+    if (it != self->params->scalars.end()) {
+      self->params->scalars.erase(it);
+    }
+    return mp_const_none;
+  } else if (value == MP_OBJ_SENTINEL) {
+    // Get item
+    auto val = (*self->params)[std::string(key)];
+    if (val == nullptr) {
+      mp_raise_msg(&mp_type_KeyError, "key not found");
+    } else {
+      return mp_obj_new_float(val->value());
+    }
+  } else {
+    // Set item
+    self->params->scalar(key)->value(mp_obj_get_float(value));
+    return mp_const_none;
+  }
+}
+
 extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
   static bool initialized = false;
   if (initialized) {
@@ -188,55 +302,61 @@ extern "C" mp_obj_t canopy_render() {
   return mp_const_none;
 }
 
-extern "C" mp_obj_t canopy_draw(mp_obj_t segment, mp_obj_t pattern,
-                                mp_obj_t alpha) {
+extern "C" mp_obj_t canopy_draw(size_t n_args, const mp_obj_t *args,
+                                mp_map_t *kw_args) {
   if (leds == NULL) {
     mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
   }
 
-  // segment is a Segment object
-  canopy_segment_obj_t *segment_obj = (canopy_segment_obj_t *)segment;
+  // segment is a Segment object. raise exception if it's the wrong type
+  if (!MP_OBJ_IS_TYPE(args[0], &canopy_segment_type)) {
+    mp_raise_TypeError("expected Segment object");
+  }
+  canopy_segment_obj_t *segment_obj = (canopy_segment_obj_t *)args[0];
 
-  // pattern is a Pattern object
-  canopy_pattern_obj_t *pattern_obj = (canopy_pattern_obj_t *)pattern;
+  // pattern is a Pattern object. raise exception if it's the wrong type
+  if (!MP_OBJ_IS_TYPE(args[1], &canopy_pattern_type)) {
+    mp_raise_TypeError("expected Pattern object");
+  }
+  canopy_pattern_obj_t *pattern_obj = (canopy_pattern_obj_t *)args[1];
 
   // alpha is float with default of 1.0
-  float alphaValue = mp_obj_get_float(alpha);
+  float alphaValue = 1.0f;
 
-  // load params from params dict
-  Params p;
-  mp_map_t *params = mp_obj_dict_get_map(pattern_obj->params);
+  // get opacity from kwargs
+  mp_obj_t alpha =
+      mp_map_lookup(kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_alpha), MP_MAP_LOOKUP);
+  if (alpha != MP_OBJ_NULL) {
+    alphaValue = mp_obj_get_float(alpha);
+  }
 
-  for (size_t i = 0; i < params->alloc; i++) {
-    if (mp_map_slot_is_filled(params, i)) {
-      mp_map_elem_t *elem = &(params->table[i]);
-      const char *key = mp_obj_str_get_str(elem->key);
-      float val = mp_obj_get_float(elem->value);
-      p.scalar(key)->value(mp_obj_get_float(elem->value));
+  static Params noparams;
+  Params *p = &noparams;
+
+  if (n_args > 2) {
+    if (MP_OBJ_IS_TYPE(args[2], &canopy_params_type)) {
+      canopy_params_obj_t *params_obj = (canopy_params_obj_t *)args[2];
+      p = params_obj->params.get();
     }
+
+    // TODO: convert dict to Params
+    // load params from params dict
+    // Params p;
+    // mp_map_t *params = mp_obj_dict_get_map(pattern_obj->params);
+
+    // for (size_t i = 0; i < params->alloc; i++) {
+    //   if (mp_map_slot_is_filled(params, i)) {
+    //     mp_map_elem_t *elem = &(params->table[i]);
+    //     const char *key = mp_obj_str_get_str(elem->key);
+    //     float val = mp_obj_get_float(elem->value);
+    //     p.scalar(key)->value(mp_obj_get_float(elem->value));
+    //   }
+    // }
   }
 
   if (alphaValue > 0.0) {
-    pattern_obj->pattern->render(*(segment_obj->segment), p, alphaValue);
+    pattern_obj->pattern->render(*(segment_obj->segment), *p, alphaValue);
   }
 
-  return mp_const_none;
-}
-
-extern "C" mp_obj_t canopy_get_brightness(mp_obj_t self_in) {
-  return mp_obj_new_float(out.brightness / 255.0);
-}
-
-extern "C" mp_obj_t canopy_set_brightness(mp_obj_t self_in,
-                                          mp_obj_t brightness) {
-  float b = mp_obj_get_float(brightness);
-  if (b > 1.0) {
-    b = 1.0;
-  }
-  if (b < 0.0) {
-    b = 0.0f;
-  }
-
-  out.brightness = b * 255;
   return mp_const_none;
 }
