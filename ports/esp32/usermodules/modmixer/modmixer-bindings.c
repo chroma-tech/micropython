@@ -58,6 +58,7 @@ mp_obj_t mixer_voice_make_new(const mp_obj_type_t *type, size_t n_args,
   // TODO: optional kwargs for loop and volume
   o->voice.loop = false;
   o->voice.volume = 1.0f;
+  o->voice.playing = true;
 
   return MP_OBJ_FROM_PTR(o);
 }
@@ -72,6 +73,31 @@ mp_obj_t mixer_voice_deinit(mp_obj_t self_in) {
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mixer_voice_deinit_obj, mixer_voice_deinit);
 
+mp_obj_t mixer_voice_play(mp_obj_t self_in) {
+  mixer_voice_obj_t *self = (mixer_voice_obj_t *)self_in;
+  self->voice.playing = true;
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mixer_voice_play_obj, mixer_voice_play);
+
+mp_obj_t mixer_voice_stop(mp_obj_t self_in) {
+  mixer_voice_obj_t *self = (mixer_voice_obj_t *)self_in;
+  self->voice.playing = false;
+  self->voice.source.reset(&self->voice.source.context);
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mixer_voice_stop_obj, mixer_voice_stop);
+
+mp_obj_t mixer_voice_pause(mp_obj_t self_in) {
+  mixer_voice_obj_t *self = (mixer_voice_obj_t *)self_in;
+  self->voice.playing = false;
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mixer_voice_pause_obj, mixer_voice_pause);
+
 void mixer_voice_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
   mixer_voice_obj_t *self = (mixer_voice_obj_t *)self_in;
 
@@ -85,6 +111,10 @@ void mixer_voice_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
       dest[0] = mp_obj_new_int(self->voice.source.sample_rate);
     } else if (attr == MP_QSTR_channels) {
       dest[0] = mp_obj_new_int(self->voice.source.channels);
+    } else if (attr == MP_QSTR_playing) {
+      dest[0] = mp_obj_new_bool(self->voice.playing);
+    } else {
+      dest[1] = MP_OBJ_SENTINEL;
     }
   } else {
     // set
@@ -106,6 +136,9 @@ void mixer_voice_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
 
 STATIC const mp_rom_map_elem_t mixer_voice_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&mixer_voice_deinit_obj)},
+    {MP_ROM_QSTR(MP_QSTR_play), MP_ROM_PTR(&mixer_voice_play_obj)},
+    {MP_ROM_QSTR(MP_QSTR_stop), MP_ROM_PTR(&mixer_voice_stop_obj)},
+    {MP_ROM_QSTR(MP_QSTR_pause), MP_ROM_PTR(&mixer_voice_pause_obj)},
 };
 
 STATIC MP_DEFINE_CONST_DICT(mixer_voice_locals_dict,
