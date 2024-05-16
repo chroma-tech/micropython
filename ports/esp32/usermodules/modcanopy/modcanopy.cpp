@@ -360,3 +360,23 @@ extern "C" mp_obj_t canopy_draw(size_t n_args, const mp_obj_t *args,
 
   return mp_const_none;
 }
+
+extern "C" void canopy_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
+  // get
+  if (dest[0] == MP_OBJ_NULL) {
+    if (attr == MP_QSTR_brightness) {
+      dest[0] = mp_obj_new_float(out.brightness / 255.0);
+    } else {
+      dest[1] = MP_OBJ_SENTINEL;
+    }
+  } else {
+    if (attr == MP_QSTR_brightness) {
+      float brightness = mp_obj_get_float(dest[1]);
+      if (brightness < 0.0 || brightness > 1.0) {
+        mp_raise_ValueError("brightness must be between 0.0 and 1.0");
+      }
+      out.brightness = brightness * 255;
+    }
+    dest[0] = MP_OBJ_NULL;
+  }
+}
