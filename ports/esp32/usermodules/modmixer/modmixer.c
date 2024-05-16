@@ -74,19 +74,21 @@ size_t stream_read_samples(void *context, int16_t *buffer, size_t num_samples,
                            bool loop) {
   mp_obj_t stream_obj = (mp_obj_t)context;
   size_t bytes_to_read = num_samples * 2;
-  size_t bytes_read = stream_read(stream_obj, buffer, bytes_to_read);
+  uint8_t *buffer8 = (uint8_t *)buffer;
+  size_t bytes_read = stream_read(stream_obj, buffer8, bytes_to_read);
 
-  if (bytes_read < bytes_to_read && loop) {
+  while (loop && bytes_read < bytes_to_read) {
     stream_reset(stream_obj);
-    stream_read(stream_obj, buffer + bytes_read, bytes_to_read - bytes_read);
+    bytes_read += stream_read(stream_obj, buffer8 + bytes_read,
+                              bytes_to_read - bytes_read);
   }
 
   // fill the difference with silence
   if (bytes_read < bytes_to_read) {
-    memset(buffer + bytes_read / 2, 0, (bytes_to_read - bytes_read) / 2);
+    memset(buffer8 + bytes_read, 0, (bytes_to_read - bytes_read));
   }
 
-  return num_samples;
+  return bytes_read / 2;
 }
 
 bool source_init_from_stream(AudioSource *source, mp_obj_t stream_obj) {
@@ -186,16 +188,29 @@ bool source_init_from_wav(AudioSource *source, const char *filename) {
 
 size_t mixer_read_samples(MixerVoice *voices, size_t num_voices,
                           int16_t *buffer, size_t num_samples) {
+  bool active = false;
+
   for (size_t i = 0; i < num_voices; i++) {
+    // if (!voices[i].playing) {
+    //   continue;
+    // }
+
     AudioSource *source = &voices[i].source;
     size_t read = source->read_samples(source->context, buffer, num_samples,
                                        voices[i].loop);
 
-    if (i == 0) {
+    // if (read < num_samples) {
+    //   voices[i].playing = false;
+    //   source->reset(source->context);
+    // }
+
+    if (!active) {
       // first voice just scale by volume
       for (size_t j = 0; j < read; j++) {
         buffer[j] = fmult16signed(buffer[j], voices[i].volume);
       }
+      active = true;
+
     } else {
       // every other voice needs to be mixed
       for (size_t j = 0; j < read; j++) {

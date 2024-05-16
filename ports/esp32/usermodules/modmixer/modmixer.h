@@ -27,6 +27,7 @@ typedef struct {
   AudioSource source;
   float volume;
   bool loop;
+  bool playing;
 } MixerVoice;
 
 size_t wav_read_samples(void *context, int16_t *buffer, size_t num_samples,
