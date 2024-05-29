@@ -12,7 +12,6 @@ const mp_obj_type_t mixer_voice_type;
 
 mp_obj_t mixer_voice_make_new(const mp_obj_type_t *type, size_t n_args,
                               size_t n_kw, const mp_obj_t *args) {
-
   if (n_args < 1) {
     mp_raise_TypeError(MP_ERROR_TEXT("filename required"));
   }
@@ -20,18 +19,12 @@ mp_obj_t mixer_voice_make_new(const mp_obj_type_t *type, size_t n_args,
   mixer_voice_obj_t *o = m_new_obj(mixer_voice_obj_t);
   o->base.type = &mixer_voice_type;
 
-  // const char *filename = mp_obj_str_get_str(args[0]);
-
   mp_obj_t arg = args[0];
   if (mp_obj_is_str(arg)) {
     arg = mp_call_function_2(MP_OBJ_FROM_PTR(&mp_builtin_open_obj), arg,
                              MP_ROM_QSTR(MP_QSTR_rb));
+    o->voice.source.needs_close = true;
   }
-
-  // if (!mp_obj_is_type(arg, &mp_type_vfs_fat_fileio)) {
-  //   mp_raise_TypeError(
-  //       MP_ERROR_TEXT("file must be a file opened in byte mode"));
-  // }
 
   if (!source_init_from_stream(&o->voice.source, arg)) {
     m_del_obj(mixer_voice_obj_t, o);
@@ -39,26 +32,10 @@ mp_obj_t mixer_voice_make_new(const mp_obj_type_t *type, size_t n_args,
                  "file not found or invalid wav file or invalid format");
   }
 
-  // uint8_t *buffer = NULL;
-  // size_t buffer_size = 0;
-  // if (n_args >= 2) {
-  //   mp_buffer_info_t bufinfo;
-  //   mp_get_buffer_raise(args[1], &bufinfo, MP_BUFFER_WRITE);
-  //   buffer = bufinfo.buf;
-  //   buffer_size =
-  //       mp_arg_validate_length_range(bufinfo.len, 8, 1024, MP_QSTR_buffer);
-  // }
-
-  // if (!source_init_from_wav(&o->voice.source, filename)) {
-  //   m_del_obj(mixer_voice_obj_t, o);
-  //   mp_raise_msg(&mp_type_OSError,
-  //                "file not found or invalid wav file or invalid format");
-  // }
-
   // TODO: optional kwargs for loop and volume
   o->voice.loop = false;
   o->voice.volume = 1.0f;
-  o->voice.playing = true;
+  o->voice.playing = false;
 
   return MP_OBJ_FROM_PTR(o);
 }
@@ -66,8 +43,10 @@ mp_obj_t mixer_voice_make_new(const mp_obj_type_t *type, size_t n_args,
 mp_obj_t mixer_voice_deinit(mp_obj_t self_in) {
   printf("Inside mixer_voice_deinit\n");
   mixer_voice_obj_t *self = (mixer_voice_obj_t *)self_in;
-  wav_close(self->voice.source.context);
-  self->voice.source.context = NULL;
+  if (self->voice.source.needs_close) {
+    mp_obj_t close = mp_load_attr(self->voice.source.stream_obj, MP_QSTR_close);
+    mp_call_function_0(close);
+  }
   return mp_const_none;
 }
 
@@ -84,7 +63,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(mixer_voice_play_obj, mixer_voice_play);
 mp_obj_t mixer_voice_stop(mp_obj_t self_in) {
   mixer_voice_obj_t *self = (mixer_voice_obj_t *)self_in;
   self->voice.playing = false;
-  self->voice.source.reset(&self->voice.source.context);
+  source_reset(&self->voice.source);
   return mp_const_none;
 }
 
@@ -151,41 +130,124 @@ MP_DEFINE_CONST_OBJ_TYPE(mixer_voice_type, MP_QSTR_Voice,
 
 //----------------------------------------------------------------
 
-// typedef struct {
-//   mp_obj_base_t base;
-//   Mixer mixer;
-// } mixer_obj_t;
+// Mixer type
 
-// mixer module
+typedef struct {
+  mp_obj_base_t base;
+  mp_obj_t voices;
+} mixer_mixer_obj_t;
 
-mp_obj_t mixer_mixinto(mp_obj_t voice_in, mp_obj_t buffer_in) {
+const mp_obj_type_t mixer_mixer_type;
 
+mp_obj_t mixer_mixer_make_new(const mp_obj_type_t *type, size_t n_args,
+                              size_t n_kw, const mp_obj_t *args) {
+  mixer_mixer_obj_t *o = m_new_obj(mixer_mixer_obj_t);
+  o->base.type = &mixer_mixer_type;
+  o->voices = mp_obj_new_list(0, NULL);
+  return MP_OBJ_FROM_PTR(o);
+}
+
+mp_obj_t mixer_mixer_play(mp_obj_t self_in, mp_obj_t voice_in) {
+  mixer_mixer_obj_t *self = (mixer_mixer_obj_t *)self_in;
   mixer_voice_obj_t *voice = (mixer_voice_obj_t *)voice_in;
+  voice->voice.playing = true;
 
-  // // see if voices_in is a single voice or an iterable of voices
-  // mp_obj_t iter = mp_getiter(voices_in);
-  // mp_obj_t voice_in = mp_iternext(iter);
-  // if (voice_in == MP_OBJ_STOP_ITERATION) {
-  //   return mp_const_none;
-  // }
+  // if the voice is already in the list, reset it and return
+  mp_obj_t *items;
+  size_t len;
+  mp_obj_list_get(self->voices, &len, &items);
+  for (ssize_t i = 0; i < len; ++i) {
+    if (items[i] == voice_in) {
+      source_reset(&voice->voice.source);
+      return mp_const_none;
+    }
+  }
+
+  // add the voice to the list
+  mp_obj_list_append(self->voices, voice_in);
+
+  return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(mixer_play_obj, mixer_mixer_play);
+
+mp_obj_t mixer_mixinto(mp_obj_t self_in, mp_obj_t buffer_in) {
+  mixer_mixer_obj_t *self = (mixer_mixer_obj_t *)self_in;
 
   // get a writable buffer
   mp_buffer_info_t bufinfo;
   mp_get_buffer_raise(buffer_in, &bufinfo, MP_BUFFER_WRITE);
 
-  // mix into the buffer, but how much
   size_t num_samples = bufinfo.len / sizeof(int16_t);
-  mixer_read_samples(&voice->voice, 1, bufinfo.buf, num_samples);
+  if (num_samples == 0) {
+    return mp_const_none;
+  }
+
+  for (ssize_t i = 0; i < num_samples; ++i) {
+    ((uint16_t *)bufinfo.buf)[i] = 0;
+  }
+
+  mp_obj_t *items;
+  size_t len;
+  mp_obj_list_get(self->voices, &len, &items);
+
+  if (len == 0) {
+    return mp_const_none;
+  }
+
+  // prune stopped voices. iterate from the end
+  for (ssize_t i = len - 1; i >= 0; --i) {
+    mp_obj_t item = items[i];
+    mixer_voice_obj_t *voice_obj = (mixer_voice_obj_t *)item;
+    if (!voice_obj->voice.playing) {
+      mp_obj_list_remove(self->voices, item);
+    }
+  }
+
+  mp_obj_list_get(self->voices, &len, &items);
+
+  // mix the remaining voices
+  bool first_voice = true;
+  for (ssize_t i = 0; i < len; ++i) {
+    mixer_voice_obj_t *voice_obj = (mixer_voice_obj_t *)items[i];
+    if (!voice_obj->voice.playing) {
+      continue;
+    }
+    mixer_mix_voice(&voice_obj->voice, bufinfo.buf, num_samples, first_voice);
+    first_voice = false;
+  }
 
   return mp_const_none;
 }
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(mixer_mixinto_obj, mixer_mixinto);
 
+mp_obj_t mixer_voices(mp_obj_t self_in) {
+  mixer_mixer_obj_t *self = (mixer_mixer_obj_t *)self_in;
+  return self->voices;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(mixer_voices_obj, mixer_voices);
+
+// create a type for Mixer
+
+STATIC const mp_rom_map_elem_t mixer_mixer_locals_dict_table[] = {
+    {MP_ROM_QSTR(MP_QSTR_play), MP_ROM_PTR(&mixer_play_obj)},
+    {MP_ROM_QSTR(MP_QSTR_mixinto), MP_ROM_PTR(&mixer_mixinto_obj)},
+    {MP_ROM_QSTR(MP_QSTR_voices), MP_ROM_PTR(&mixer_voices_obj)},
+};
+
+STATIC MP_DEFINE_CONST_DICT(mixer_mixer_locals_dict,
+                            mixer_mixer_locals_dict_table);
+
+MP_DEFINE_CONST_OBJ_TYPE(mixer_mixer_type, MP_QSTR_Voice, MP_TYPE_FLAG_NONE,
+                         make_new, mixer_mixer_make_new, locals_dict,
+                         &mixer_mixer_locals_dict);
+
 STATIC const mp_rom_map_elem_t mp_module_mixer_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_mixer)},
-    {MP_ROM_QSTR(MP_QSTR_mixinto), MP_ROM_PTR(&mixer_mixinto_obj)},
     {MP_ROM_QSTR(MP_QSTR_Voice), MP_ROM_PTR(&mixer_voice_type)},
+    {MP_ROM_QSTR(MP_QSTR_Mixer), MP_ROM_PTR(&mixer_mixer_type)},
 };
 
 STATIC MP_DEFINE_CONST_DICT(mp_module_mixer_globals,

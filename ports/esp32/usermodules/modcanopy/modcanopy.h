@@ -32,4 +32,5 @@ extern mp_obj_t canopy_render();
 extern mp_obj_t canopy_clear();
 extern mp_obj_t canopy_draw(size_t n_args, const mp_obj_t *args,
                             mp_map_t *kw_args);
-extern void canopy_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest);
+extern mp_obj_t canopy_brightness(size_t n_args, const mp_obj_t *args,
+                                  mp_map_t *kw_args);
