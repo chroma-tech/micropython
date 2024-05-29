@@ -63,32 +63,45 @@ void stream_seek(mp_obj_t stream_obj, uint32_t position) {
   mp_call_function_2(seek, mp_obj_new_int(position), mp_obj_new_int(0));
 }
 
-void stream_reset(mp_obj_t stream_obj) { stream_seek(stream_obj, 44); }
-
-void stream_close(mp_obj_t stream_obj) {
-  mp_obj_t close = mp_load_attr(stream_obj, MP_QSTR_close);
-  mp_call_function_0(close);
+void source_reset(AudioSource *source) {
+  stream_seek(source->stream_obj, 44);
+  source->data_remaining = source->data_size;
 }
 
-size_t stream_read_samples(void *context, int16_t *buffer, size_t num_samples,
-                           bool loop) {
-  mp_obj_t stream_obj = (mp_obj_t)context;
-  size_t bytes_to_read = num_samples * 2;
-  uint8_t *buffer8 = (uint8_t *)buffer;
-  size_t bytes_read = stream_read(stream_obj, buffer8, bytes_to_read);
+size_t stream_read_samples(AudioSource *source, int16_t *buffer,
+                           size_t num_samples, bool loop) {
 
-  while (loop && bytes_read < bytes_to_read) {
-    stream_reset(stream_obj);
-    bytes_read += stream_read(stream_obj, buffer8 + bytes_read,
-                              bytes_to_read - bytes_read);
+  uint8_t *buffer8 = (uint8_t *)buffer;
+
+  // this function will always fill the buffer up. if we're looping, we'll reset
+  // and keep reading. If we're not looping, we'll fill the rest with silence
+
+  // each call to stream_read needs to be limited by data_remaining, and
+  // num_samples
+  size_t total_bytes_to_read = num_samples * 2;
+  size_t bytes_to_read = MIN(total_bytes_to_read, source->data_remaining);
+  size_t total_bytes_read =
+      stream_read(source->stream_obj, buffer8, bytes_to_read);
+  source->data_remaining -= total_bytes_read;
+
+  while (loop && total_bytes_read < total_bytes_to_read) {
+    source_reset(source);
+    bytes_to_read =
+        MIN(total_bytes_to_read - total_bytes_read, source->data_remaining);
+    size_t bytes_read = stream_read(source->stream_obj,
+                                    buffer8 + total_bytes_read, bytes_to_read);
+    total_bytes_read += bytes_read;
+    source->data_remaining -= bytes_read;
   }
 
   // fill the difference with silence
-  if (bytes_read < bytes_to_read) {
-    memset(buffer8 + bytes_read, 0, (bytes_to_read - bytes_read));
+  if (total_bytes_read < total_bytes_to_read) {
+    source_reset(source);
+    memset(buffer8 + total_bytes_read, 0,
+           total_bytes_to_read - total_bytes_read);
   }
 
-  return bytes_read / 2;
+  return total_bytes_read / 2;
 }
 
 bool source_init_from_stream(AudioSource *source, mp_obj_t stream_obj) {
@@ -102,122 +115,101 @@ bool source_init_from_stream(AudioSource *source, mp_obj_t stream_obj) {
     return false;
   }
 
+  source->stream_obj = stream_obj;
   source->channels = header.channels;
   source->sample_rate = header.sample_rate;
-  source->bits_per_sample = header.bits_per_sample;
+  source->sample_size = header.bits_per_sample / 8;
+  source->data_size = header.data_size;
+  source->data_remaining = header.data_size;
 
-  // TODO: hold a reference to the stream object
-
-  source->context = (void *)stream_obj;
-  source->read_samples = stream_read_samples;
-  source->reset = stream_reset;
-  source->close = stream_close;
-
-  stream_reset(stream_obj);
+  // source_reset(source);
   return true;
 }
 
-size_t wav_read_samples(void *context, int16_t *buffer, size_t num_samples,
-                        bool loop) {
-  WavFileSourceContext *ctx = (WavFileSourceContext *)context;
-  size_t samples_read = fread(buffer, ctx->sample_size, num_samples, ctx->file);
-  while (samples_read < num_samples && loop) {
-    fseek(ctx->file, ctx->data_offset, SEEK_SET);
-    samples_read +=
-        fread(buffer + samples_read * ctx->sample_size, ctx->sample_size,
-              num_samples - samples_read, ctx->file);
+// size_t mixer_read_samples(MixerVoice *voices, size_t num_voices,
+//                           int16_t *buffer, size_t num_samples) {
+//   bool active = false;
+
+//   for (size_t i = 0; i < num_voices; i++) {
+//     if (!voices[i].playing) {
+//       continue;
+//     }
+
+//     AudioSource *source = &voices[i].source;
+
+//     stream_read_samples(source, buffer, num_samples, voices[i].loop);
+
+//     size_t read =
+//         source->read_samples(source, buffer, num_samples, voices[i].loop);
+
+//     // this reset logic only gets called if loop is false
+//     if (read < num_samples) {
+//       voices[i].playing = false;
+//       source->reset(source->context);
+//     }
+
+//     if (!active) {
+//       // first voice just scale by volume
+//       for (size_t j = 0; j < read; j++) {
+//         buffer[j] = fmult16signed(buffer[j], voices[i].volume);
+//       }
+//       active = true;
+
+//     } else {
+//       // every other voice needs to be mixed
+//       for (size_t j = 0; j < read; j++) {
+//         buffer[j] =
+//             add16signed(buffer[j], fmult16signed(buffer[j],
+//             voices[i].volume));
+//       }
+//     }
+//   }
+
+//   return num_samples;
+// }
+
+size_t mixer_mix_voice(MixerVoice *voice, int16_t *buffer, size_t num_samples,
+                       bool overwrite) {
+
+  int16_t chunk[128];
+
+  if (!voice->playing) {
+    return 0;
   }
 
-  // fill the difference with silence
-  if (samples_read < num_samples) {
-    memset(buffer + samples_read, 0,
-           (num_samples - samples_read) * ctx->sample_size);
-    samples_read += num_samples - samples_read;
-  }
+  AudioSource *source = &voice->source;
 
-  return num_samples;
-}
+  // read in chunks
+  size_t samples_read = 0;
+  while (samples_read < num_samples) {
+    size_t chunk_size = num_samples - samples_read;
+    if (chunk_size > 128) {
+      chunk_size = 128;
+    }
 
-void wav_reset(void *context) {
-  WavFileSourceContext *ctx = (WavFileSourceContext *)context;
-  fseek(ctx->file, ctx->data_offset, SEEK_SET);
-}
-
-void wav_close(void *context) {
-  WavFileSourceContext *ctx = (WavFileSourceContext *)context;
-  fclose(ctx->file);
-  free(ctx);
-}
-
-bool source_init_from_wav(AudioSource *source, const char *filename) {
-  WAVHeader header;
-
-  FILE *file = fopen(filename, "rb");
-  if (!file) {
-    return false;
-  }
-
-  if (fread(&header, sizeof(WAVHeader), 1, file) != 1) {
-    fclose(file);
-    return false;
-  }
-
-  if (!verify_wav_header(&header)) {
-    fclose(file);
-    return false;
-  }
-
-  WavFileSourceContext *context = malloc(sizeof(WavFileSourceContext));
-  if (!context) {
-    fclose(file);
-    return false;
-  }
-
-  context->file = file;
-  context->data_offset = sizeof(WAVHeader) + (header.fmt_size - 16);
-  context->sample_size = header.bits_per_sample / 8;
-
-  source->context = context;
-  source->read_samples = wav_read_samples;
-  source->reset = wav_reset;
-  source->close = wav_close;
-
-  wav_reset(context);
-  return true;
-}
-
-size_t mixer_read_samples(MixerVoice *voices, size_t num_voices,
-                          int16_t *buffer, size_t num_samples) {
-  bool active = false;
-
-  for (size_t i = 0; i < num_voices; i++) {
-    // if (!voices[i].playing) {
-    //   continue;
-    // }
-
-    AudioSource *source = &voices[i].source;
-    size_t read = source->read_samples(source->context, buffer, num_samples,
-                                       voices[i].loop);
-
-    // if (read < num_samples) {
-    //   voices[i].playing = false;
-    //   source->reset(source->context);
-    // }
-
-    if (!active) {
-      // first voice just scale by volume
-      for (size_t j = 0; j < read; j++) {
-        buffer[j] = fmult16signed(buffer[j], voices[i].volume);
-      }
-      active = true;
-
+    if (!voice->playing) {
+      memset(chunk, 0, sizeof(chunk));
     } else {
-      // every other voice needs to be mixed
-      for (size_t j = 0; j < read; j++) {
-        buffer[j] =
-            add16signed(buffer[j], fmult16signed(buffer[j], voices[i].volume));
+      if (stream_read_samples(source, chunk, chunk_size, voice->loop) <
+          chunk_size) {
+        voice->playing = false;
       }
     }
+
+    if (overwrite) {
+      // first voice just scale by volume
+      for (size_t j = 0; j < chunk_size; j++) {
+        buffer[samples_read + j] = fmult16signed(chunk[j], voice->volume);
+      }
+    } else {
+      // every other voice needs to be mixed
+      for (size_t j = 0; j < chunk_size; j++) {
+        buffer[samples_read + j] = add16signed(
+            buffer[samples_read + j], fmult16signed(chunk[j], voice->volume));
+      }
+    }
+
+    samples_read += chunk_size;
   }
 
   return num_samples;

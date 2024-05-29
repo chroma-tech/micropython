@@ -68,6 +68,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(canopy_init_obj, canopy_init);
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(canopy_clear_obj, canopy_clear);
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(canopy_render_obj, canopy_render);
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(canopy_draw_obj, 2, canopy_draw);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(canopy_brightness_obj, 0, canopy_brightness);
 
 STATIC const mp_rom_map_elem_t mp_module_canopy_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_canopy)},
@@ -75,6 +76,7 @@ STATIC const mp_rom_map_elem_t mp_module_canopy_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_clear), MP_ROM_PTR(&canopy_clear_obj)},
     {MP_ROM_QSTR(MP_QSTR_render), MP_ROM_PTR(&canopy_render_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&canopy_draw_obj)},
+    {MP_ROM_QSTR(MP_QSTR_brightness), MP_ROM_PTR(&canopy_brightness_obj)},
     {MP_ROM_QSTR(MP_QSTR_Pattern), MP_ROM_PTR(&canopy_pattern_type)},
     {MP_ROM_QSTR(MP_QSTR_Segment), MP_ROM_PTR(&canopy_segment_type)},
     {MP_ROM_QSTR(MP_QSTR_Params), MP_ROM_PTR(&canopy_params_type)},
@@ -83,13 +85,8 @@ STATIC const mp_rom_map_elem_t mp_module_canopy_globals_table[] = {
 STATIC MP_DEFINE_CONST_DICT(mp_module_canopy_globals,
                             mp_module_canopy_globals_table);
 
-STATIC MP_DEFINE_CONST_OBJ_TYPE(canopy_module_type, MP_QSTR_canopy,
-                                MP_TYPE_FLAG_HAS_SPECIAL_ACCESSORS, attr,
-                                canopy_attr, locals_dict,
-                                &mp_module_canopy_globals);
-
 const mp_obj_module_t mp_module_canopy = {
-    .base = {&canopy_module_type},
+    .base = {&mp_type_module},
     .globals = (mp_obj_dict_t *)&mp_module_canopy_globals,
 };
 
