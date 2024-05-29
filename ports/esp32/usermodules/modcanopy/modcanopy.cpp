@@ -115,6 +115,11 @@ extern "C" mp_obj_t canopy_segment_make_new(const mp_obj_type_t *type,
   int start = mp_obj_get_int(args[1]);
   int length = mp_obj_get_int(args[2]);
 
+  bool reverse = false;
+  if (n_args > 3) {
+    reverse = mp_obj_is_true(args[3]);
+  }
+
   // make sure segment is valid
   if (channel < 0 || channel >= nChannels) {
     mp_raise_ValueError("channel out of range");
@@ -130,9 +135,9 @@ extern "C" mp_obj_t canopy_segment_make_new(const mp_obj_type_t *type,
 
   canopy_segment_obj_t *self = m_new_obj_with_finaliser(canopy_segment_obj_t);
   self->base.type = &canopy_segment_type;
-  self->segment =
-      std::make_unique<Segment>(&leds[channel * nLedsPerChannel + start],
-                                length, PixelMapping16::linearMap(length));
+  self->segment = std::make_unique<Segment>(
+      &leds[channel * nLedsPerChannel + start], length,
+      PixelMapping16::linearMap(length, reverse));
 
   return MP_OBJ_FROM_PTR(self);
 }
@@ -378,5 +383,32 @@ extern "C" void canopy_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
       out.brightness = brightness * 255;
     }
     dest[0] = MP_OBJ_NULL;
+  }
+}
+
+extern "C" mp_obj_t canopy_brightness_getter() {
+  return mp_obj_new_float(out.brightness / 255.0);
+}
+
+extern "C" mp_obj_t canopy_brightness_setter(mp_obj_t value) {
+  float brightness = mp_obj_get_float(value);
+  if (brightness < 0.0 || brightness > 1.0) {
+    mp_raise_ValueError("brightness must be between 0.0 and 1.0");
+  }
+  out.brightness = brightness * 255;
+  return mp_const_none;
+}
+
+extern "C" mp_obj_t canopy_brightness(size_t n_args, const mp_obj_t *args,
+                                      mp_map_t *kw_args) {
+  if (n_args == 0) {
+    return mp_obj_new_float(out.brightness / 255.0);
+  } else {
+    float brightness = mp_obj_get_float(args[0]);
+    if (brightness < 0.0 || brightness > 1.0) {
+      mp_raise_ValueError("brightness must be between 0.0 and 1.0");
+    }
+    out.brightness = brightness * 255.0;
+    return mp_const_none;
   }
 }
