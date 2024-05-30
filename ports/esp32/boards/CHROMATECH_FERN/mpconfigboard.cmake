@@ -3,10 +3,12 @@ set(IDF_TARGET esp32s3)
 set(SDKCONFIG_DEFAULTS
     boards/sdkconfig.base
     boards/sdkconfig.usb
-    #boards/sdkconfig.msc
+
+    # boards/sdkconfig.msc
     boards/sdkconfig.ble
     boards/sdkconfig.spiram_sx
-    boards/ESP32_GENERIC_S3/sdkconfig.board
+    boards/sdkconfig.240mhz
+    boards/CHROMATECH_FERN/sdkconfig.board
 )
 
 if(MICROPY_BOARD_VARIANT STREQUAL "SPIRAM_OCT")
@@ -17,7 +19,7 @@ if(MICROPY_BOARD_VARIANT STREQUAL "SPIRAM_OCT")
     )
 
     list(APPEND MICROPY_DEF_BOARD
-        MICROPY_HW_BOARD_NAME="Chroma.tech fern"
+        MICROPY_HW_BOARD_NAME="Chroma.tech Fern OCT SPIRAM"
     )
 endif()
 
