@@ -63,11 +63,6 @@ extern "C" mp_obj_t canopy_pattern_make_new(const mp_obj_type_t *type,
   self->base.type = &canopy_pattern_type;
   self->pattern = std::make_unique<Pattern>(Pattern::load(pattern_config));
 
-  // printf("Pattern %s has %d layers, %d scalars, %d palettes\n",
-  //        self->pattern->name.c_str(), self->pattern->layers.size(),
-  //        self->pattern->params.scalars.size(),
-  //        self->pattern->params.palettes.size());
-
   // create a params dict and load it with the params from the pattern
   self->params = mp_obj_new_dict(0);
   for (auto &scalar : self->pattern->params.scalars) {
@@ -307,57 +302,69 @@ extern "C" mp_obj_t canopy_render() {
   return mp_const_none;
 }
 
-extern "C" mp_obj_t canopy_draw(size_t n_args, const mp_obj_t *args,
+extern "C" mp_obj_t canopy_draw(size_t n_args, const mp_obj_t *pos_args,
                                 mp_map_t *kw_args) {
   if (leds == NULL) {
     mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
   }
 
+  enum { ARG_segment, ARG_pattern, ARG_alpha, ARG_params };
+  static const mp_arg_t allowed_args[] = {
+      {MP_QSTR_segment,
+       MP_ARG_OBJ | MP_ARG_REQUIRED,
+       {.u_rom_obj = MP_ROM_NONE}},
+      {MP_QSTR_pattern,
+       MP_ARG_OBJ | MP_ARG_REQUIRED,
+       {.u_rom_obj = MP_ROM_NONE}},
+      {MP_QSTR_alpha, MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE}},
+      {MP_QSTR_params, MP_ARG_OBJ | MP_ARG_KW_ONLY, {.u_rom_obj = MP_ROM_NONE}},
+  };
+  mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+  mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args),
+                   allowed_args, args);
+
   // segment is a Segment object. raise exception if it's the wrong type
-  if (!MP_OBJ_IS_TYPE(args[0], &canopy_segment_type)) {
+  if (!MP_OBJ_IS_TYPE(args[ARG_segment].u_obj, &canopy_segment_type)) {
     mp_raise_TypeError("expected Segment object");
   }
-  canopy_segment_obj_t *segment_obj = (canopy_segment_obj_t *)args[0];
+  canopy_segment_obj_t *segment_obj =
+      (canopy_segment_obj_t *)args[ARG_segment].u_obj;
 
   // pattern is a Pattern object. raise exception if it's the wrong type
-  if (!MP_OBJ_IS_TYPE(args[1], &canopy_pattern_type)) {
+  if (!MP_OBJ_IS_TYPE(args[ARG_pattern].u_obj, &canopy_pattern_type)) {
     mp_raise_TypeError("expected Pattern object");
   }
-  canopy_pattern_obj_t *pattern_obj = (canopy_pattern_obj_t *)args[1];
+  canopy_pattern_obj_t *pattern_obj =
+      (canopy_pattern_obj_t *)args[ARG_pattern].u_obj;
 
   // alpha is float with default of 1.0
   float alphaValue = 1.0f;
-
-  // get opacity from kwargs
-  mp_obj_t alpha =
-      mp_map_lookup(kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_alpha), MP_MAP_LOOKUP);
-  if (alpha != MP_OBJ_NULL) {
-    alphaValue = mp_obj_get_float(alpha);
+  if (mp_obj_is_float(args[ARG_alpha].u_obj)) {
+    alphaValue = mp_obj_get_float(args[ARG_alpha].u_obj);
   }
 
   static Params noparams;
   Params *p = &noparams;
 
-  if (n_args > 2) {
-    if (MP_OBJ_IS_TYPE(args[2], &canopy_params_type)) {
-      canopy_params_obj_t *params_obj = (canopy_params_obj_t *)args[2];
-      p = params_obj->params.get();
-    }
-
-    // TODO: convert dict to Params
-    // load params from params dict
-    // Params p;
-    // mp_map_t *params = mp_obj_dict_get_map(pattern_obj->params);
-
-    // for (size_t i = 0; i < params->alloc; i++) {
-    //   if (mp_map_slot_is_filled(params, i)) {
-    //     mp_map_elem_t *elem = &(params->table[i]);
-    //     const char *key = mp_obj_str_get_str(elem->key);
-    //     float val = mp_obj_get_float(elem->value);
-    //     p.scalar(key)->value(mp_obj_get_float(elem->value));
-    //   }
-    // }
+  if (MP_OBJ_IS_TYPE(args[ARG_params].u_obj, &canopy_params_type)) {
+    canopy_params_obj_t *params_obj =
+        (canopy_params_obj_t *)args[ARG_params].u_obj;
+    p = params_obj->params.get();
   }
+
+  // TODO: convert dict to Params
+  // load params from params dict
+  // Params p;
+  // mp_map_t *params = mp_obj_dict_get_map(pattern_obj->params);
+
+  // for (size_t i = 0; i < params->alloc; i++) {
+  //   if (mp_map_slot_is_filled(params, i)) {
+  //     mp_map_elem_t *elem = &(params->table[i]);
+  //     const char *key = mp_obj_str_get_str(elem->key);
+  //     float val = mp_obj_get_float(elem->value);
+  //     p.scalar(key)->value(mp_obj_get_float(elem->value));
+  //   }
+  // }
 
   if (alphaValue > 0.0) {
     pattern_obj->pattern->render(*(segment_obj->segment), *p, alphaValue);
