@@ -11,4 +11,4 @@ dependencies:
     version: a276a4eef329bf2f355aa5a212c55461f8609a03
   canopy:
     git: git@github.com:chroma-tech/canopy.git
-    version: 0c8634c5147155c9a459644d1ce4c1f76900dc4e
+    version: 9230b84d07cee696c2a90494de298a7134837de7
