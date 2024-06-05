@@ -79,7 +79,6 @@ typedef struct _machine_i2s_obj_t {
     #endif
     i2s_dir_t mode;
     i2s_data_bit_width_t bits;
-    mp_hal_pin_obj_t mck;
     format_t format;
     int32_t rate;
     int32_t ibuf;
