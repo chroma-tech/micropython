@@ -210,7 +210,7 @@ mp_obj_t mixer_mixinto(mp_obj_t self_in, mp_obj_t buffer_in) {
   bool first_voice = true;
   for (ssize_t i = 0; i < len; ++i) {
     mixer_voice_obj_t *voice_obj = (mixer_voice_obj_t *)items[i];
-    if (!voice_obj->voice.playing) {
+    if (!voice_obj->voice.playing || voice_obj->voice.volume == 0.0f) {
       continue;
     }
     mixer_mix_voice(&voice_obj->voice, bufinfo.buf, num_samples, first_voice);
