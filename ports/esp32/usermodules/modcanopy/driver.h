@@ -17,7 +17,7 @@
 
 #include <math.h>
 
-#define COLOR_ORDER_BLUE(color_order) ((color_order)&0x3)
+#define COLOR_ORDER_BLUE(color_order) ((color_order) & 0x3)
 #define COLOR_ORDER_GREEN(color_order) (((color_order) >> 3) & 0x3)
 #define COLOR_ORDER_RED(color_order) (((color_order) >> 6) & 0x3)
 
@@ -181,10 +181,8 @@ class S3ClocklessDriver {
   gdma_channel_handle_t dma_chan;
   dma_descriptor_t *dma_desc;
 
-  bool is_showing;
-  bool is_waiting;
   uint32_t show_ended_us;
-  TaskHandle_t task_handle;
+  SemaphoreHandle_t xRenderSemaphore;
 
   static IRAM_ATTR bool dma_callback(gdma_channel_handle_t dma_chan,
                                      gdma_event_data_t *event_data,
@@ -305,8 +303,11 @@ public:
     gdma_tx_event_callbacks_t tx_cbs = {.on_trans_eof = dma_callback};
     gdma_register_tx_event_callbacks(dma_chan, &tx_cbs, this);
 
-    is_showing = false;
-    is_waiting = false;
+    // Max count 1, initial count 0
+    xRenderSemaphore = xSemaphoreCreateCounting(1, 0);
+
+    // start it off
+    xSemaphoreGive(xRenderSemaphore);
 
     return true;
   }
@@ -345,13 +346,7 @@ public:
 
   void show(uint8_t *leds, CRGBOut &out) {
     // wait for previous call to show to complete
-    if (is_showing) {
-      is_waiting = true;
-      task_handle = xTaskGetCurrentTaskHandle();
-      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    }
-    is_showing = true;
-    is_waiting = false;
+    xSemaphoreTake(xRenderSemaphore, portMAX_DELAY);
 
     gdma_reset(dma_chan);
     LCD_CAM.lcd_user.lcd_dout = 1;
@@ -399,13 +394,11 @@ IRAM_ATTR bool S3ClocklessDriver::dma_callback(gdma_channel_handle_t dma_chan,
   LCD_CAM.lcd_user.lcd_start = 0;
 
   _this->show_ended_us = micros();
-  _this->is_showing = false;
-  if (_this->is_waiting) {
-    portBASE_TYPE HPTaskAwoken = 0;
-    vTaskNotifyGiveFromISR(_this->task_handle, &HPTaskAwoken);
-    if (HPTaskAwoken == pdTRUE) {
-      portYIELD_FROM_ISR(HPTaskAwoken);
-    }
+
+  portBASE_TYPE HPTaskAwoken = 0;
+  xSemaphoreGiveFromISR(_this->xRenderSemaphore, &HPTaskAwoken);
+  if (HPTaskAwoken == pdTRUE) {
+    portYIELD_FROM_ISR(HPTaskAwoken);
   }
 
   return true;
