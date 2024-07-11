@@ -37,7 +37,9 @@ typedef struct _canopy_params_obj_t {
   std::unique_ptr<Params> params;
 } canopy_params_obj_t;
 
-S3ClocklessDriver leddriver;
+// S3ClocklessDriver<8, 3> leddriver;
+NewS3ClockedDriver<ColorDepth::C8Bit, SpiWidth::W8Bit, ElementsPerPixel::E4>
+    leddriver;
 CRGBOut out;
 CRGB *leds = NULL;
 size_t nChannels = 0;
@@ -279,9 +281,23 @@ extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
   // allocate backbuffer
   leds = (CRGB *)malloc(3 * nChannels * nLedsPerChannel);
 
+  out.order = BGR;
+
   // init
-  leddriver.begin(pinArray, nChannels, nLedsPerChannel);
+  // leddriver.begin(pinArray, nChannels, nLedsPerChannel);
+  leddriver.begin(pinArray, nChannels, nLedsPerChannel, 18);
   initialized = true;
+
+  return mp_const_none;
+}
+
+extern "C" mp_obj_t canopy_end() {
+  if (leds == NULL) {
+    mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
+  }
+  leddriver.end();
+  free(leds);
+  leds = nullptr;
 
   return mp_const_none;
 }

@@ -5,6 +5,7 @@
 #endif
 
 #include <driver/periph_ctrl.h>
+#include <driver/spi_master.h>
 #include <esp_log.h>
 #include <esp_private/gdma.h>
 #include <esp_rom_gpio.h>
@@ -105,6 +106,40 @@ struct Gamma {
 
 Gamma default_gamma;
 
+struct CRGBA {
+  union {
+    struct {
+      uint8_t a;
+      uint8_t r;
+      uint8_t g;
+      uint8_t b;
+    };
+    uint8_t raw[4];
+  };
+
+  CRGBA() {}
+  CRGBA(CRGB &c, Gamma &gamma_r = default_gamma, Gamma &gamma_g = default_gamma,
+        Gamma &gamma_b = default_gamma, uint8_t max_brightness = 255) {
+    uint32_t rs = gamma_r.lut[c.r];
+    uint32_t gs = gamma_g.lut[c.g];
+    uint32_t bs = gamma_b.lut[c.b];
+    uint32_t mb = uint32_t(max_brightness) + 1;
+    rs = rs * mb / 256;
+    gs = gs * mb / 256;
+    bs = bs * mb / 256;
+
+    uint32_t as = ((std::max(std::max(rs, gs), bs) + 1) >> 8) + 1;
+    rs /= as;
+    gs /= as;
+    bs /= as;
+
+    a = 0xe0 | uint8_t(as);
+    r = uint8_t(rs);
+    g = uint8_t(gs);
+    b = uint8_t(bs);
+  }
+};
+
 struct CRGBOut {
   Gamma gamma_r = default_gamma;
   Gamma gamma_g = default_gamma;
@@ -118,6 +153,16 @@ struct CRGBOut {
     out.raw[order.g] = gamma_g.lut8[in.g];
     out.raw[order.b] = gamma_b.lut8[in.b];
     return out % brightness;
+  }
+
+  CRGBA ApplyRGBA(CRGB &in) {
+    CRGBA in_rgba(in, gamma_r, gamma_g, gamma_b, brightness);
+    CRGBA out;
+    out.raw[0] = in_rgba.a;
+    out.raw[order.r + 1] = in_rgba.r;
+    out.raw[order.g + 1] = in_rgba.g;
+    out.raw[order.b + 1] = in_rgba.b;
+    return out;
   }
 };
 
@@ -167,11 +212,16 @@ __attribute__((always_inline)) inline void transpose8x1(unsigned char *A,
   B[0] = x;
 }
 
+//-----------------------------------------------------------------------------
+// Clockless driver
+//-----------------------------------------------------------------------------
+
 // hardcode these for now, until we have RGBW support
-const uint16_t bytes_per_pixel = 3;
-const uint16_t max_strips = 8;
+// const uint16_t bytes_per_pixel = 3;
+// const uint16_t max_strips = 8;
 const uint32_t minimum_delay_between_frames_us = 350;
 
+template <uint16_t max_strips, uint16_t bytes_per_pixel>
 class S3ClocklessDriver {
   uint16_t num_strips;
   uint16_t leds_per_strip;
@@ -381,9 +431,10 @@ public:
   }
 };
 
-IRAM_ATTR bool S3ClocklessDriver::dma_callback(gdma_channel_handle_t dma_chan,
-                                               gdma_event_data_t *event_data,
-                                               void *user_data) {
+template <uint16_t max_strips, uint16_t bytes_per_pixel>
+bool S3ClocklessDriver<max_strips, bytes_per_pixel>::dma_callback(
+    gdma_channel_handle_t dma_chan, gdma_event_data_t *event_data,
+    void *user_data) {
   S3ClocklessDriver *_this = (S3ClocklessDriver *)user_data;
 
   // DMA callback seems to occur a moment before the last data has issued
@@ -402,4 +453,274 @@ IRAM_ATTR bool S3ClocklessDriver::dma_callback(gdma_channel_handle_t dma_chan,
   }
 
   return true;
+}
+
+//-----------------------------------------------------------------------------
+// Clocked driver
+//-----------------------------------------------------------------------------
+
+enum class ColorDepth : uint8_t { C8Bit = 1, C16Bit = 2 };
+enum class SpiWidth : uint8_t { W1Bit = 1, W2Bit = 2, W4Bit = 4, W8Bit = 8 };
+enum class ElementsPerPixel : uint8_t { E3 = 3, E4 = 4 };
+
+constexpr size_t startFrameSize(ColorDepth depth, SpiWidth width) {
+  return (depth == ColorDepth::C8Bit)    ? 4 * size_t(width)
+         : (depth == ColorDepth::C16Bit) ? 16 * size_t(width)
+                                         : 0;
+}
+
+constexpr size_t endFrameSize(ElementsPerPixel epp, SpiWidth numChannels,
+                              uint16_t channelLength) {
+  // one bit per pixel, rounded up to
+  // the nearest byte. ch len 100 = 104
+  return epp == ElementsPerPixel::E3
+             ? 0
+             : (channelLength + 7) / 8 * size_t(numChannels);
+}
+
+// template class with templates for ColorDepth, SpiWidth, ElementsPerPixel
+template <ColorDepth color_depth, SpiWidth spi_width, ElementsPerPixel epp>
+class NewS3ClockedDriver {
+  uint16_t num_strips;
+  uint16_t leds_per_strip;
+
+  size_t dma_buffer_size;
+  uint8_t *dma_data = NULL;
+  spi_host_device_t spi_host_device;
+  spi_device_handle_t spi_handle = NULL;
+  spi_transaction_t spi_transaction;
+
+  bool inited = false;
+
+  SemaphoreHandle_t xRenderSemaphore;
+
+  static IRAM_ATTR void dma_callback(spi_transaction_t *trans);
+
+  int spi_pin_number(int i, const int *pins) {
+    return (i < num_strips && pins[i] >= 0) ? pins[i] : 1;
+  }
+
+public:
+  NewS3ClockedDriver() {}
+  ~NewS3ClockedDriver() { end(); }
+
+  bool begin(const int *pins, uint16_t num_strips, uint16_t leds_per_strip,
+             uint8_t sck) {
+
+    if (num_strips == 0 || num_strips > uint16_t(spi_width)) {
+      ESP_LOGE("leds", "Invalid number of strips");
+      return false;
+    }
+
+    if (inited) {
+      return inited;
+    }
+
+    this->num_strips = num_strips;
+    this->leds_per_strip = leds_per_strip;
+
+    // allocate DMA buffer
+    size_t pixel_data_size =
+        leds_per_strip * size_t(color_depth) * size_t(epp) * size_t(spi_width);
+    dma_buffer_size = startFrameSize(color_depth, spi_width) + pixel_data_size +
+                      endFrameSize(epp, spi_width, leds_per_strip);
+
+    // must have a 4 byte aligned buffer for SPI DMA
+    uint32_t alignment = dma_buffer_size % 4;
+    if (alignment) {
+      dma_buffer_size += 4 - alignment;
+    }
+
+    dma_data = static_cast<uint8_t *>(
+        heap_caps_malloc(dma_buffer_size, MALLOC_CAP_DMA));
+    memset(dma_data, 0, dma_buffer_size);
+
+    // init spi bus
+    esp_err_t ret;
+    spi_bus_config_t buscfg;
+    memset(&buscfg, 0x00, sizeof(buscfg));
+
+    // spi bus init requires all pins to be valid, so set unused pins to 1 and
+    // then reclaim pin 1 at the end. this won't work if we want to use pin 1
+    // as an actual LED output
+    buscfg.sclk_io_num = sck;
+    buscfg.data0_io_num = spi_pin_number(0, pins);
+    buscfg.data1_io_num = spi_pin_number(1, pins);
+    buscfg.data2_io_num = spi_pin_number(2, pins);
+    buscfg.data3_io_num = spi_pin_number(3, pins);
+    buscfg.data4_io_num = spi_pin_number(4, pins);
+    buscfg.data5_io_num = spi_pin_number(5, pins);
+    buscfg.data6_io_num = spi_pin_number(6, pins);
+    buscfg.data7_io_num = spi_pin_number(7, pins);
+
+    spi_host_device = SPI2_HOST;
+
+    buscfg.max_transfer_sz = dma_buffer_size;
+    if (spi_width == SpiWidth::W8Bit) {
+      buscfg.flags = SPICOMMON_BUSFLAG_OCTAL;
+    }
+    ret = spi_bus_initialize(spi_host_device, &buscfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) {
+      ESP_LOGE("leds", "spi_bus_initialize failed");
+      return false;
+    }
+
+    // reclaim pin 1. does this actually work? hmm
+    esp_rom_gpio_connect_out_signal(1, SIG_GPIO_OUT_IDX, false, true);
+
+    // init spi device
+    spi_device_interface_config_t devcfg = {};
+    devcfg.clock_speed_hz = 4 * 1000 * 1000;
+    devcfg.mode = 0;
+    devcfg.spics_io_num = -1;
+    devcfg.queue_size = 1;
+    if (spi_width == SpiWidth::W1Bit) {
+      devcfg.flags = 0;
+    } else {
+      devcfg.flags = SPI_DEVICE_HALFDUPLEX;
+    }
+    devcfg.post_cb = dma_callback;
+
+    ret = spi_bus_add_device(spi_host_device, &devcfg, &spi_handle);
+    if (ret != ESP_OK) {
+      ESP_LOGE("leds", "spi_bus_initialize failed");
+      return false;
+    }
+
+    // Max count 1, initial count 0
+    xRenderSemaphore = xSemaphoreCreateCounting(1, 0);
+    xSemaphoreGive(xRenderSemaphore);
+
+    inited = true;
+    return inited;
+  }
+
+  void stage(uint8_t *leds, CRGBOut &out) {
+    // we process & transpose one pixel at a time * max_strips
+    // uint8_t packed[size_t(epp) * size_t(color_depth) * size_t(spi_width)] =
+    // {0}; uint8_t transposed[size_t(epp) * size_t(color_depth) *
+    // size_t(spi_width)] =
+    //     {0};
+
+    // hardcodede for 8 bit for now
+    uint8_t packed[32] = {0};
+    // uint8_t transposed[32] = {0};
+
+    uint8_t *output = dma_data + startFrameSize(color_depth, spi_width);
+
+    for (int i = 0; i < leds_per_strip; i++) {
+      for (int j = 0; j < num_strips; j++) {
+        // color order, gamma, brightness
+        CRGB *p = &((CRGB *)leds)[i + j * leds_per_strip];
+        CRGBA pixel = out.ApplyRGBA(*p);
+        // CRGBA pixel;
+        // pixel.r = 255;
+        // pixel.g = 0;
+        // pixel.b = 0;
+        // pixel.a = 255;
+
+        // hardcoded for 8 bit for now
+        packed[j + 0] = pixel.raw[0];
+        packed[j + 8] = pixel.raw[1];
+        packed[j + 16] = pixel.raw[2];
+        packed[j + 24] = pixel.raw[3];
+
+        // for (int c = 0; c < size_t(epp); c++) {
+        //   packed[j + (c * size_t(spi_width))] = pixel.raw[c];
+        // }
+      }
+
+      // transpose - hardcoded for 8 bit for now
+      for (int i = 0; i < size_t(epp); i++) {
+
+        transpose8x1((unsigned char *)(packed + 8 * i),
+                     (unsigned char *)(output + 8 * i));
+
+        // if (spi_width == SpiWidth::W1Bit) {
+        //   // no transpose needed
+        // } else if (spi_width == SpiWidth::W2Bit) {
+        //   // TODO: transpose 2
+        // } else if (spi_width == SpiWidth::W4Bit) {
+        //   // TODO: transpose 4
+        // } else if (spi_width == SpiWidth::W8Bit) {
+        // transpose8x1((unsigned char *)(packed + 8 * i),
+        //              (unsigned char *)(transposed + 8 * i));
+        // }
+      }
+
+      output += 32;
+
+      // copy to DMA buffer
+      // for (int i = 0; i < 32; i++, output += 3) {
+      //   output[0] = 0xFF;
+      //   output[1] = transposed[i];
+      //   output[2] = 0x00;
+      // }
+    }
+  }
+
+  void show(uint8_t *leds, CRGBOut &out) {
+    if (!inited) {
+      ESP_LOGW("leds", "Show called before successful init");
+      return;
+    }
+
+    // wait for previous call to show to complete
+    xSemaphoreTake(xRenderSemaphore, portMAX_DELAY);
+
+    // stage
+    stage(leds, out);
+
+    // prepare txn
+    memset(&spi_transaction, 0, sizeof(spi_transaction));
+    spi_transaction.length = dma_buffer_size * 8; // in bits not bytes!
+    if (spi_width == SpiWidth::W1Bit) {
+      spi_transaction.flags = 0;
+    }
+    if (spi_width == SpiWidth::W2Bit) {
+      spi_transaction.flags = SPI_TRANS_MODE_DIO;
+    }
+    if (spi_width == SpiWidth::W4Bit) {
+      spi_transaction.flags = SPI_TRANS_MODE_QIO;
+    }
+    if (spi_width == SpiWidth::W8Bit) {
+      spi_transaction.flags = SPI_TRANS_MODE_OCT;
+    }
+    spi_transaction.tx_buffer = dma_data;
+    spi_transaction.user = this;
+
+    // kick it off
+    esp_err_t ret = spi_device_queue_trans(spi_handle, &spi_transaction, 0);
+    if (ret != ESP_OK) {
+      ESP_LOGE("leds", "spi_device_queue_trans failed: %d", ret);
+      xSemaphoreGive(xRenderSemaphore);
+    }
+  }
+
+  void end() {
+    if (nullptr != spi_handle) {
+      spi_bus_remove_device(spi_handle);
+      spi_handle = nullptr;
+      spi_bus_free(spi_host_device);
+    }
+
+    if (nullptr != dma_data) {
+      heap_caps_free(dma_data);
+      dma_data = nullptr;
+    }
+
+    inited = false;
+  }
+};
+
+template <ColorDepth color_depth, SpiWidth spi_width, ElementsPerPixel epp>
+IRAM_ATTR void NewS3ClockedDriver<color_depth, spi_width, epp>::dma_callback(
+    spi_transaction_t *spi_tran) {
+  NewS3ClockedDriver *_this = (NewS3ClockedDriver *)spi_tran->user;
+
+  portBASE_TYPE HPTaskAwoken = 0;
+  xSemaphoreGiveFromISR(_this->xRenderSemaphore, &HPTaskAwoken);
+  if (HPTaskAwoken == pdTRUE) {
+    portYIELD_FROM_ISR(HPTaskAwoken);
+  }
 }

@@ -65,6 +65,7 @@ MP_DEFINE_CONST_OBJ_TYPE(canopy_params_type, MP_QSTR_Params, MP_TYPE_FLAG_NONE,
 // canopy module
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(canopy_init_obj, canopy_init);
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(canopy_end_obj, canopy_end);
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(canopy_clear_obj, canopy_clear);
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(canopy_render_obj, canopy_render);
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(canopy_draw_obj, 2, canopy_draw);
@@ -73,6 +74,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(canopy_brightness_obj, 0, canopy_brightness);
 STATIC const mp_rom_map_elem_t mp_module_canopy_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_canopy)},
     {MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&canopy_init_obj)},
+    {MP_ROM_QSTR(MP_QSTR_end), MP_ROM_PTR(&canopy_end_obj)},
     {MP_ROM_QSTR(MP_QSTR_clear), MP_ROM_PTR(&canopy_clear_obj)},
     {MP_ROM_QSTR(MP_QSTR_render), MP_ROM_PTR(&canopy_render_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&canopy_draw_obj)},
