@@ -64,7 +64,7 @@ MP_DEFINE_CONST_OBJ_TYPE(canopy_params_type, MP_QSTR_Params, MP_TYPE_FLAG_NONE,
 
 // canopy module
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_2(canopy_init_obj, canopy_init);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(canopy_init_obj, 2, canopy_init);
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(canopy_end_obj, canopy_end);
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(canopy_clear_obj, canopy_clear);
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(canopy_render_obj, canopy_render);
@@ -82,6 +82,12 @@ STATIC const mp_rom_map_elem_t mp_module_canopy_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_Pattern), MP_ROM_PTR(&canopy_pattern_type)},
     {MP_ROM_QSTR(MP_QSTR_Segment), MP_ROM_PTR(&canopy_segment_type)},
     {MP_ROM_QSTR(MP_QSTR_Params), MP_ROM_PTR(&canopy_params_type)},
+    {MP_ROM_QSTR(MP_QSTR_RGB), MP_ROM_INT(012)},
+    {MP_ROM_QSTR(MP_QSTR_RBG), MP_ROM_INT(021)},
+    {MP_ROM_QSTR(MP_QSTR_GRB), MP_ROM_INT(102)},
+    {MP_ROM_QSTR(MP_QSTR_GBR), MP_ROM_INT(120)},
+    {MP_ROM_QSTR(MP_QSTR_BRG), MP_ROM_INT(201)},
+    {MP_ROM_QSTR(MP_QSTR_BGR), MP_ROM_INT(210)},
 };
 
 STATIC MP_DEFINE_CONST_DICT(mp_module_canopy_globals,

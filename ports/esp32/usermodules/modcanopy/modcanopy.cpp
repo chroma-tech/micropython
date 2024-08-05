@@ -37,13 +37,20 @@ typedef struct _canopy_params_obj_t {
   std::unique_ptr<Params> params;
 } canopy_params_obj_t;
 
-// S3ClocklessDriver<8, 3> leddriver;
-NewS3ClockedDriver<ColorDepth::C8Bit, SpiWidth::W8Bit, ElementsPerPixel::E4>
-    leddriver;
+typedef S3ClocklessDriver<8, 3> CanopyClocklessDriver;
+typedef NewS3ClockedDriver<ColorDepth::C8Bit, SpiWidth::W8Bit,
+                           ElementsPerPixel::E4>
+    CanopyClockedDriver;
+
+std::unique_ptr<CanopyClocklessDriver> driver_clockless = nullptr;
+std::unique_ptr<CanopyClockedDriver> driver_clocked = nullptr;
+
 CRGBOut out;
 CRGB *leds = NULL;
 size_t nChannels = 0;
 size_t nLedsPerChannel = 0;
+
+static bool initialized = false;
 
 extern "C" const mp_obj_type_t canopy_pattern_type;
 extern "C" const mp_obj_type_t canopy_segment_type;
@@ -253,21 +260,42 @@ extern "C" mp_obj_t canopy_params_subscr(mp_obj_t self_in, mp_obj_t index,
   }
 }
 
-extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
-  static bool initialized = false;
+extern "C" mp_obj_t canopy_init(size_t n_args, const mp_obj_t *pos_args,
+                                mp_map_t *kw_args) {
+
+  enum { ARG_pins, ARG_ledsPerChannel, ARG_clkPin, ARG_order };
+  static const mp_arg_t allowed_args[] = {
+      {MP_QSTR_pins, MP_ARG_OBJ | MP_ARG_REQUIRED, {.u_rom_obj = MP_ROM_NONE}},
+      {MP_QSTR_ledsPerChannel,
+       MP_ARG_OBJ | MP_ARG_REQUIRED,
+       {.u_rom_obj = mp_obj_new_int(100)}},
+      {MP_QSTR_clk, MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE}},
+      {MP_QSTR_order, MP_ARG_OBJ, {.u_rom_obj = mp_obj_new_int(BGR)}},
+  };
+
+  // parse args
+  mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+  mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args),
+                   allowed_args, args);
+
   if (initialized) {
     if (leds != NULL) {
       free(leds);
       leds = NULL;
     }
-    leddriver.end();
+    if (driver_clockless != nullptr) {
+      driver_clockless->end();
+      driver_clockless = nullptr;
+    }
+    if (driver_clocked != nullptr) {
+      driver_clocked->end();
+      driver_clocked = nullptr;
+    }
     initialized = false;
   }
 
-  // pins should be iterable, ledsPerChannel a number
-  // make sure pins is iterable
-
   // get a c-style array from the pins iterable
+  mp_obj_t pins = args[ARG_pins].u_obj;
   mp_obj_t *pinObjs;
   mp_obj_get_array(pins, &nChannels, &pinObjs);
   int pinArray[nChannels];
@@ -276,18 +304,26 @@ extern "C" mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel) {
   }
 
   // get the number of leds per channel
-  nLedsPerChannel = mp_obj_get_int(ledsPerChannel);
+  nLedsPerChannel = mp_obj_get_int(args[ARG_ledsPerChannel].u_obj);
 
   // allocate backbuffer
   leds = (CRGB *)malloc(3 * nChannels * nLedsPerChannel);
 
-  out.order = BGR;
+  // get the color order
+  EOrder order = (EOrder)mp_obj_get_int(args[ARG_order].u_obj);
+  out.order = order;
 
-  // init
-  // leddriver.begin(pinArray, nChannels, nLedsPerChannel);
-  leddriver.begin(pinArray, nChannels, nLedsPerChannel, 18);
+  // init clocked if we have a valid clkpin, otherwise clockless
+  if (args[ARG_clkPin].u_obj != MP_ROM_NONE) {
+    int clkPin = mp_obj_get_int(args[ARG_clkPin].u_obj);
+    driver_clocked = std::make_unique<CanopyClockedDriver>();
+    driver_clocked->begin(pinArray, nChannels, nLedsPerChannel, clkPin);
+  } else {
+    driver_clockless = std::make_unique<CanopyClocklessDriver>();
+    driver_clockless->begin(pinArray, nChannels, nLedsPerChannel);
+  }
+
   initialized = true;
-
   return mp_const_none;
 }
 
@@ -295,9 +331,20 @@ extern "C" mp_obj_t canopy_end() {
   if (leds == NULL) {
     mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
   }
-  leddriver.end();
-  free(leds);
-  leds = nullptr;
+
+  if (driver_clockless != nullptr) {
+    driver_clockless->end();
+    driver_clockless = nullptr;
+  }
+  if (driver_clocked != nullptr) {
+    driver_clocked->end();
+    driver_clocked = nullptr;
+  }
+  if (leds != NULL) {
+    free(leds);
+    leds = NULL;
+  }
+  initialized = false;
 
   return mp_const_none;
 }
@@ -314,7 +361,12 @@ extern "C" mp_obj_t canopy_render() {
   if (leds == NULL) {
     mp_raise_msg(&mp_type_RuntimeError, "canopy hasn't been initialized");
   }
-  leddriver.show((uint8_t *)leds, out);
+  if (driver_clockless != nullptr) {
+    driver_clockless->show((uint8_t *)leds, out);
+  }
+  if (driver_clocked != nullptr) {
+    driver_clocked->show((uint8_t *)leds, out);
+  }
   return mp_const_none;
 }
 
@@ -389,38 +441,38 @@ extern "C" mp_obj_t canopy_draw(size_t n_args, const mp_obj_t *pos_args,
   return mp_const_none;
 }
 
-extern "C" void canopy_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
-  // get
-  if (dest[0] == MP_OBJ_NULL) {
-    if (attr == MP_QSTR_brightness) {
-      dest[0] = mp_obj_new_float(out.brightness / 255.0);
-    } else {
-      dest[1] = MP_OBJ_SENTINEL;
-    }
-  } else {
-    if (attr == MP_QSTR_brightness) {
-      float brightness = mp_obj_get_float(dest[1]);
-      if (brightness < 0.0 || brightness > 1.0) {
-        mp_raise_ValueError("brightness must be between 0.0 and 1.0");
-      }
-      out.brightness = brightness * 255;
-    }
-    dest[0] = MP_OBJ_NULL;
-  }
-}
+// extern "C" void canopy_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
+//   // get
+//   if (dest[0] == MP_OBJ_NULL) {
+//     if (attr == MP_QSTR_brightness) {
+//       dest[0] = mp_obj_new_float(out.brightness / 255.0);
+//     } else {
+//       dest[1] = MP_OBJ_SENTINEL;
+//     }
+//   } else {
+//     if (attr == MP_QSTR_brightness) {
+//       float brightness = mp_obj_get_float(dest[1]);
+//       if (brightness < 0.0 || brightness > 1.0) {
+//         mp_raise_ValueError("brightness must be between 0.0 and 1.0");
+//       }
+//       out.brightness = brightness * 255;
+//     }
+//     dest[0] = MP_OBJ_NULL;
+//   }
+// }
 
-extern "C" mp_obj_t canopy_brightness_getter() {
-  return mp_obj_new_float(out.brightness / 255.0);
-}
+// extern "C" mp_obj_t canopy_brightness_getter() {
+//   return mp_obj_new_float(out.brightness / 255.0);
+// }
 
-extern "C" mp_obj_t canopy_brightness_setter(mp_obj_t value) {
-  float brightness = mp_obj_get_float(value);
-  if (brightness < 0.0 || brightness > 1.0) {
-    mp_raise_ValueError("brightness must be between 0.0 and 1.0");
-  }
-  out.brightness = brightness * 255;
-  return mp_const_none;
-}
+// extern "C" mp_obj_t canopy_brightness_setter(mp_obj_t value) {
+//   float brightness = mp_obj_get_float(value);
+//   if (brightness < 0.0 || brightness > 1.0) {
+//     mp_raise_ValueError("brightness must be between 0.0 and 1.0");
+//   }
+//   out.brightness = brightness * 255;
+//   return mp_const_none;
+// }
 
 extern "C" mp_obj_t canopy_brightness(size_t n_args, const mp_obj_t *args,
                                       mp_map_t *kw_args) {

@@ -597,14 +597,7 @@ public:
 
   void stage(uint8_t *leds, CRGBOut &out) {
     // we process & transpose one pixel at a time * max_strips
-    // uint8_t packed[size_t(epp) * size_t(color_depth) * size_t(spi_width)] =
-    // {0}; uint8_t transposed[size_t(epp) * size_t(color_depth) *
-    // size_t(spi_width)] =
-    //     {0};
-
-    // hardcodede for 8 bit for now
-    uint8_t packed[32] = {0};
-    // uint8_t transposed[32] = {0};
+    uint8_t packed[size_t(epp) * size_t(color_depth) * size_t(spi_width)] = {0};
 
     uint8_t *output = dma_data + startFrameSize(color_depth, spi_width);
 
@@ -613,21 +606,12 @@ public:
         // color order, gamma, brightness
         CRGB *p = &((CRGB *)leds)[i + j * leds_per_strip];
         CRGBA pixel = out.ApplyRGBA(*p);
-        // CRGBA pixel;
-        // pixel.r = 255;
-        // pixel.g = 0;
-        // pixel.b = 0;
-        // pixel.a = 255;
 
         // hardcoded for 8 bit for now
         packed[j + 0] = pixel.raw[0];
         packed[j + 8] = pixel.raw[1];
         packed[j + 16] = pixel.raw[2];
         packed[j + 24] = pixel.raw[3];
-
-        // for (int c = 0; c < size_t(epp); c++) {
-        //   packed[j + (c * size_t(spi_width))] = pixel.raw[c];
-        // }
       }
 
       // transpose - hardcoded for 8 bit for now
@@ -635,27 +619,9 @@ public:
 
         transpose8x1((unsigned char *)(packed + 8 * i),
                      (unsigned char *)(output + 8 * i));
-
-        // if (spi_width == SpiWidth::W1Bit) {
-        //   // no transpose needed
-        // } else if (spi_width == SpiWidth::W2Bit) {
-        //   // TODO: transpose 2
-        // } else if (spi_width == SpiWidth::W4Bit) {
-        //   // TODO: transpose 4
-        // } else if (spi_width == SpiWidth::W8Bit) {
-        // transpose8x1((unsigned char *)(packed + 8 * i),
-        //              (unsigned char *)(transposed + 8 * i));
-        // }
       }
 
-      output += 32;
-
-      // copy to DMA buffer
-      // for (int i = 0; i < 32; i++, output += 3) {
-      //   output[0] = 0xFF;
-      //   output[1] = transposed[i];
-      //   output[2] = 0x00;
-      // }
+      output += sizeof(packed);
     }
   }
 

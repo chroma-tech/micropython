@@ -27,7 +27,8 @@ extern mp_obj_t canopy_params_subscr(mp_obj_t self_in, mp_obj_t index,
                                      mp_obj_t value);
 
 // canopy module
-extern mp_obj_t canopy_init(mp_obj_t pins, mp_obj_t ledsPerChannel);
+extern mp_obj_t canopy_init(size_t n_args, const mp_obj_t *pos_args,
+                            mp_map_t *kw_args);
 extern mp_obj_t canopy_end();
 extern mp_obj_t canopy_render();
 extern mp_obj_t canopy_clear();
