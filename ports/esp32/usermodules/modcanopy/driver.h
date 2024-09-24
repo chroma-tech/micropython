@@ -432,7 +432,7 @@ public:
 };
 
 template <uint16_t max_strips, uint16_t bytes_per_pixel>
-bool S3ClocklessDriver<max_strips, bytes_per_pixel>::dma_callback(
+IRAM_ATTR bool S3ClocklessDriver<max_strips, bytes_per_pixel>::dma_callback(
     gdma_channel_handle_t dma_chan, gdma_event_data_t *event_data,
     void *user_data) {
   S3ClocklessDriver *_this = (S3ClocklessDriver *)user_data;
@@ -540,9 +540,9 @@ public:
     spi_bus_config_t buscfg;
     memset(&buscfg, 0x00, sizeof(buscfg));
 
-    // spi bus init requires all pins to be valid, so set unused pins to 1 and
-    // then reclaim pin 1 at the end. this won't work if we want to use pin 1
-    // as an actual LED output
+    // spi bus init requires all pins to be valid, so set unused pins to 1
+    // and then reclaim pin 1 at the end. this won't work if we want to use pin
+    // 1 as an actual LED output
     buscfg.sclk_io_num = sck;
     buscfg.data0_io_num = spi_pin_number(0, pins);
     buscfg.data1_io_num = spi_pin_number(1, pins);

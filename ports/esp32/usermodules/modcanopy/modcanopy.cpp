@@ -270,7 +270,7 @@ extern "C" mp_obj_t canopy_init(size_t n_args, const mp_obj_t *pos_args,
        MP_ARG_OBJ | MP_ARG_REQUIRED,
        {.u_rom_obj = mp_obj_new_int(100)}},
       {MP_QSTR_clk, MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE}},
-      {MP_QSTR_order, MP_ARG_OBJ, {.u_rom_obj = mp_obj_new_int(BGR)}},
+      {MP_QSTR_order, MP_ARG_OBJ, {.u_rom_obj = mp_obj_new_int(GRB)}},
   };
 
   // parse args
