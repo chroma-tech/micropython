@@ -3,3 +3,11 @@ dependencies:
   espressif/mdns: "~1.1.0"
   idf:
     version: ">=5.0.4"
+  bblanchon/arduinojson: "^7.0.3"
+  espressif/led_strip: "^2.5.5"
+  fastled:
+    git: https://github.com/chroma-tech/FastLED.git
+    version: a276a4eef329bf2f355aa5a212c55461f8609a03
+  canopy:
+    git: git@github.com:chroma-tech/canopy.git
+    version: 9230b84d07cee696c2a90494de298a7134837de7
