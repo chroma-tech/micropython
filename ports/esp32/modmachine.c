@@ -146,7 +146,18 @@ static void machine_sleep_helper(wake_type_t wake_type, size_t n_args, const mp_
         esp_sleep_enable_timer_wakeup(((uint64_t)expiry) * 1000);
     }
 
-    #if !CONFIG_IDF_TARGET_ESP32C3
+    #if CONFIG_IDF_TARGET_ESP32C3
+
+    // let's use ext1 pins for deep sleep wake up
+    if (MACHINE_WAKE_DEEPSLEEP == wake_type && machine_rtc_config.ext1_pins != 0) {
+            esp_deep_sleep_enable_gpio_wakeup(
+                machine_rtc_config.ext1_pins,
+                machine_rtc_config.ext1_level ? ESP_GPIO_WAKEUP_GPIO_HIGH : ESP_GPIO_WAKEUP_GPIO_LOW);
+    }
+
+    // TODO: light sleep
+    
+    #else
 
     if (machine_rtc_config.ext0_pin != -1 && (machine_rtc_config.ext0_wake_types & wake_type)) {
         esp_sleep_enable_ext0_wakeup(machine_rtc_config.ext0_pin, machine_rtc_config.ext0_level ? 1 : 0);
