@@ -30,7 +30,7 @@
     )
     #define RTC_LAST_EXT_PIN 21
 
-#elif CONFIG_TARGET_ESP32C3
+#elif CONFIG_IDF_TARGET_ESP32C3
 
     #define RTC_VALID_EXT_PINS \
     ( \

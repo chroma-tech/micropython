@@ -79,7 +79,8 @@ list(APPEND MICROPY_SOURCE_PORT
     modesp.c
     esp32_nvs.c
     esp32_partition.c
-    #esp32_rmt.c
+
+    # esp32_rmt.c
     esp32_ulp.c
     modesp32.c
     machine_hw_spi.c
@@ -139,23 +140,23 @@ list(APPEND IDF_COMPONENTS
 # Register the main IDF component.
 idf_component_register(
     SRCS
-        ${MICROPY_SOURCE_PY}
-        ${MICROPY_SOURCE_EXTMOD}
-        ${MICROPY_SOURCE_SHARED}
-        ${MICROPY_SOURCE_LIB}
-        ${MICROPY_SOURCE_DRIVERS}
-        ${MICROPY_SOURCE_PORT}
-        ${MICROPY_SOURCE_BOARD}
+    ${MICROPY_SOURCE_PY}
+    ${MICROPY_SOURCE_EXTMOD}
+    ${MICROPY_SOURCE_SHARED}
+    ${MICROPY_SOURCE_LIB}
+    ${MICROPY_SOURCE_DRIVERS}
+    ${MICROPY_SOURCE_PORT}
+    ${MICROPY_SOURCE_BOARD}
     INCLUDE_DIRS
-        ${MICROPY_INC_CORE}
-        ${MICROPY_INC_USERMOD}
-        ${MICROPY_PORT_DIR}
-        ${MICROPY_BOARD_DIR}
-        ${CMAKE_BINARY_DIR}
+    ${MICROPY_INC_CORE}
+    ${MICROPY_INC_USERMOD}
+    ${MICROPY_PORT_DIR}
+    ${MICROPY_BOARD_DIR}
+    ${CMAKE_BINARY_DIR}
     LDFRAGMENTS
-        linker.lf
+    linker.lf
     REQUIRES
-        ${IDF_COMPONENTS}
+    ${IDF_COMPONENTS}
 )
 
 # Set the MicroPython target as the current (main) IDF component target.
@@ -163,7 +164,7 @@ set(MICROPY_TARGET ${COMPONENT_TARGET})
 
 # Define mpy-cross flags, for use with frozen code.
 if(NOT IDF_TARGET STREQUAL "esp32c3")
-set(MICROPY_CROSS_FLAGS -march=xtensawin)
+    set(MICROPY_CROSS_FLAGS -march=xtensawin)
 endif()
 
 # Set compile options for this port.
@@ -205,7 +206,6 @@ endforeach()
 include(${MICROPY_DIR}/py/mkrules.cmake)
 
 # Generate source files for named pins (requires mkrules.cmake for MICROPY_GENHDR_DIR).
-
 set(GEN_PINS_PREFIX "${MICROPY_PORT_DIR}/boards/pins_prefix.c")
 set(GEN_PINS_MKPINS "${MICROPY_PORT_DIR}/boards/make-pins.py")
 set(GEN_PINS_SRC "${CMAKE_BINARY_DIR}/pins.c")
@@ -221,12 +221,12 @@ target_sources(${MICROPY_TARGET} PRIVATE ${GEN_PINS_HDR})
 add_custom_command(
     OUTPUT ${GEN_PINS_SRC} ${GEN_PINS_HDR}
     COMMAND ${Python3_EXECUTABLE} ${GEN_PINS_MKPINS} ${GEN_PINS_BOARD_CSV_ARG}
-        --prefix ${GEN_PINS_PREFIX} --output-source ${GEN_PINS_SRC} --output-header ${GEN_PINS_HDR}
+    --prefix ${GEN_PINS_PREFIX} --output-source ${GEN_PINS_SRC} --output-header ${GEN_PINS_HDR}
     DEPENDS
-        ${MICROPY_MPVERSION}
-        ${GEN_PINS_MKPINS}
-        ${GEN_PINS_BOARD_CSV}
-        ${GEN_PINS_PREFIX}
+    ${MICROPY_MPVERSION}
+    ${GEN_PINS_MKPINS}
+    ${GEN_PINS_BOARD_CSV}
+    ${GEN_PINS_PREFIX}
     VERBATIM
     COMMAND_EXPAND_LISTS
 )
