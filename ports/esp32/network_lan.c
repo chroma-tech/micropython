@@ -36,6 +36,7 @@
 
 #include "esp_eth.h"
 #include "esp_eth_mac.h"
+#include "esp_mac.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -55,7 +56,7 @@ typedef struct _lan_if_obj_t {
     int8_t phy_power_pin;
     int8_t phy_cs_pin;
     int8_t phy_int_pin;
-    uint8_t phy_addr;
+    int8_t phy_addr;
     uint8_t phy_type;
     esp_eth_phy_t *phy;
     esp_eth_handle_t eth_handle;
@@ -108,7 +109,7 @@ static mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         { MP_QSTR_mdio,         MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
         { MP_QSTR_reset,        MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
         { MP_QSTR_power,        MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
-        { MP_QSTR_phy_addr,     MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_INT },
+        { MP_QSTR_phy_addr,     MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
         { MP_QSTR_phy_type,     MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_INT },
         { MP_QSTR_spi,          MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
         { MP_QSTR_cs,           MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
@@ -135,7 +136,7 @@ static mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
     self->phy_cs_pin = GET_PIN(ARG_cs);
     self->phy_int_pin = GET_PIN(ARG_int);
 
-    if (args[ARG_phy_addr].u_int < 0x00 || args[ARG_phy_addr].u_int > 0x1f) {
+    if (args[ARG_phy_addr].u_int < -1 || args[ARG_phy_addr].u_int > 0x1f) {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid phy address"));
     }
     self->phy_addr = args[ARG_phy_addr].u_int;
@@ -297,6 +298,12 @@ static mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
             mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("esp_eth_driver_install failed"));
         }
     }
+
+    // this needs to happen before esp_netif_attach for macs 
+    // with no persistent EEPROM. we'll just do it for all.
+    uint8_t mac_addr[6] = {0};
+    esp_read_mac(mac_addr, ESP_MAC_ETH);
+    esp_eth_ioctl(self->eth_handle, ETH_CMD_S_MAC_ADDR, mac_addr);
 
     if (esp_netif_attach(self->base.netif, esp_eth_new_netif_glue(self->eth_handle)) != ESP_OK) {
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("esp_netif_attach failed"));
