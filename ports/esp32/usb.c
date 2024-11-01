@@ -36,6 +36,8 @@
 #include "tusb_cdc_acm.h"
 #endif
 
+#include "tusb_console.h"
+
 #define CDC_ITF TINYUSB_CDC_ACM_0
 
 static uint8_t usb_rx_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE];
@@ -86,7 +88,7 @@ void usb_init(void) {
         #endif
     };
     ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
-
+    ESP_ERROR_CHECK(esp_tusb_init_console(CDC_ITF));
 }
 
 void usb_tx_strn(const char *str, size_t len) {
