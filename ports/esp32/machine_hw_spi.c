@@ -87,6 +87,7 @@ typedef struct _machine_hw_spi_default_pins_t {
             int8_t sck;
             int8_t mosi;
             int8_t miso;
+            int8_t cs;
         } pins;
     };
 } machine_hw_spi_default_pins_t;
@@ -102,6 +103,7 @@ typedef struct _machine_hw_spi_obj_t {
     int8_t sck;
     int8_t mosi;
     int8_t miso;
+    int8_t cs;
     spi_device_handle_t spi;
     enum {
         MACHINE_HW_SPI_STATE_NONE,
@@ -112,14 +114,14 @@ typedef struct _machine_hw_spi_obj_t {
 
 // Default pin mappings for the hardware SPI instances
 static const machine_hw_spi_default_pins_t machine_hw_spi_default_pins[MICROPY_HW_SPI_MAX] = {
-    { .pins = { .sck = MICROPY_HW_SPI1_SCK, .mosi = MICROPY_HW_SPI1_MOSI, .miso = MICROPY_HW_SPI1_MISO }},
+    { .pins = { .sck = MICROPY_HW_SPI1_SCK, .mosi = MICROPY_HW_SPI1_MOSI, .miso = MICROPY_HW_SPI1_MISO, .cs=-1 }},
     #ifdef MICROPY_HW_SPI2_SCK
-    { .pins = { .sck = MICROPY_HW_SPI2_SCK, .mosi = MICROPY_HW_SPI2_MOSI, .miso = MICROPY_HW_SPI2_MISO }},
+    { .pins = { .sck = MICROPY_HW_SPI2_SCK, .mosi = MICROPY_HW_SPI2_MOSI, .miso = MICROPY_HW_SPI2_MISO, .cs=-1 }},
     #endif
 };
 
 // Common arguments for init() and make new
-enum { ARG_id, ARG_baudrate, ARG_polarity, ARG_phase, ARG_bits, ARG_firstbit, ARG_sck, ARG_mosi, ARG_miso };
+enum { ARG_id, ARG_baudrate, ARG_polarity, ARG_phase, ARG_bits, ARG_firstbit, ARG_sck, ARG_mosi, ARG_miso, ARG_cs };
 static const mp_arg_t spi_allowed_args[] = {
     { MP_QSTR_id,       MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = -1} },
     { MP_QSTR_baudrate, MP_ARG_INT, {.u_int = -1} },
@@ -130,6 +132,7 @@ static const mp_arg_t spi_allowed_args[] = {
     { MP_QSTR_sck,      MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
     { MP_QSTR_mosi,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
     { MP_QSTR_miso,     MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+    { MP_QSTR_cs,       MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
 };
 
 // Static objects mapping to SPI2 (and SPI3 if available) hardware peripherals.
@@ -221,6 +224,11 @@ static void machine_hw_spi_init_internal(machine_hw_spi_obj_t *self, mp_arg_val_
         changed = true;
     }
 
+    if (args[ARG_cs].u_int != -2 && args[ARG_cs].u_int != self->cs) {
+        self->cs = args[ARG_cs].u_int;
+        changed = true;
+    }
+
     if (changed) {
         if (self->state == MACHINE_HW_SPI_STATE_INIT) {
             self->state = MACHINE_HW_SPI_STATE_DEINIT;
@@ -241,7 +249,7 @@ static void machine_hw_spi_init_internal(machine_hw_spi_obj_t *self, mp_arg_val_
     spi_device_interface_config_t devcfg = {
         .clock_speed_hz = self->baudrate,
         .mode = self->phase | (self->polarity << 1),
-        .spics_io_num = -1, // No CS pin
+        .spics_io_num = self->cs,
         .queue_size = 2,
         .flags = self->firstbit == MICROPY_PY_MACHINE_SPI_LSB ? SPI_DEVICE_TXBIT_LSBFIRST | SPI_DEVICE_RXBIT_LSBFIRST : 0,
         .pre_cb = NULL
@@ -391,10 +399,10 @@ static void machine_hw_spi_transfer(mp_obj_base_t *self_in, size_t len, const ui
 
 static void machine_hw_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     machine_hw_spi_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    mp_printf(print, "SPI(id=%u, baudrate=%u, polarity=%u, phase=%u, bits=%u, firstbit=%u, sck=%d, mosi=%d, miso=%d)",
+    mp_printf(print, "SPI(id=%u, baudrate=%u, polarity=%u, phase=%u, bits=%u, firstbit=%u, sck=%d, mosi=%d, miso=%d, cs=%d)",
         self->host, self->baudrate, self->polarity,
         self->phase, self->bits, self->firstbit,
-        self->sck, self->mosi, self->miso);
+        self->sck, self->mosi, self->miso, self->cs);
 }
 
 // Take an arg list made from spi_allowed_args, and put in default or "keep same" values
@@ -404,7 +412,7 @@ static void machine_hw_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_p
 static void machine_hw_spi_argcheck(mp_arg_val_t args[], const machine_hw_spi_default_pins_t *default_pins) {
 // A non-NULL default_pins argument will trigger the "use default" behavior.
     // Replace pin args with default/current values for new vs init call, respectively
-    for (int i = ARG_sck; i <= ARG_miso; i++) {
+    for (int i = ARG_sck; i <= ARG_cs; i++) {
         if (args[i].u_obj == MP_OBJ_NULL) {
             args[i].u_int = default_pins ? default_pins->array[i - ARG_sck] : -2;
         } else if (args[i].u_obj == mp_const_none) {
