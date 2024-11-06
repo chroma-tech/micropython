@@ -36,6 +36,7 @@ include $(TOP)/extmod/extmod.mk
 # Project specific settings and compiler/linker flags.
 
 CC = emcc
+CXX = emcc
 LD = emcc
 NODE ?= node
 TERSER ?= npx terser
@@ -48,6 +49,9 @@ INC += -I$(VARIANT_DIR)
 CFLAGS += -std=c99 -Wall -Werror -Wdouble-promotion -Wfloat-conversion
 CFLAGS += -Os -DNDEBUG
 CFLAGS += $(INC)
+
+CXXFLAGS += -Os -DNDEBUG
+CXXFLAGS += $(INC)
 
 EXPORTED_FUNCTIONS_EXTRA += ,\
 	_mp_js_do_exec,\

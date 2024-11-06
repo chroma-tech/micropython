@@ -108,7 +108,7 @@
 // to print such value. So, we avoid int32_t and use int directly.
 #define UINT_FMT "%u"
 #define INT_FMT "%d"
-typedef int mp_int_t; // must be pointer size
+typedef long mp_int_t; // must be pointer size
 typedef unsigned mp_uint_t; // must be pointer size
 typedef long mp_off_t;
 
@@ -119,7 +119,9 @@ typedef long mp_off_t;
 
 #if MICROPY_VFS
 // _GNU_SOURCE must be defined to get definitions of DT_xxx symbols from dirent.h.
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #endif
 
 extern const struct _mp_print_t mp_stderr_print;
