@@ -5,9 +5,10 @@ dependencies:
   idf:
     version: ">=5.0.4"
   bblanchon/arduinojson: "^7.0.3"
+  espressif/led_strip: "^3.0.0"
   fastled:
     git: https://github.com/chroma-tech/FastLED.git
     version: a276a4eef329bf2f355aa5a212c55461f8609a03
   canopy:
     git: git@github.com:chroma-tech/canopy.git
-    version: f7d636042b0be3d476e0e49ed13a1da8ad54adfc
+    version: fixtures
