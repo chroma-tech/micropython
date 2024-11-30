@@ -54,4 +54,11 @@ def setup():
 #webrepl.start()
 """
         )
+    try:
+        import bootstrap
+    except ImportError:
+        # no bootstrap module? no problem!
+        pass
+    except Exception as e:
+        print("Error in bootstrap script:", e)
     return fs
