@@ -225,6 +225,7 @@ target_compile_options(${MICROPY_TARGET} PUBLIC
 
 target_link_options(${MICROPY_TARGET} PUBLIC
      ${MICROPY_LINK_TINYUSB}
+     -Wl,-allow-multiple-definition
 )
 
 # Additional include directories needed for private NimBLE headers.
