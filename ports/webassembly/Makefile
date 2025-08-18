@@ -49,6 +49,10 @@ CFLAGS += -std=c99 -Wall -Werror -Wdouble-promotion -Wfloat-conversion
 CFLAGS += -Os -DNDEBUG
 CFLAGS += $(INC)
 
+CXXFLAGS += -std=c++17 -Wall -Werror -Wdouble-promotion -Wfloat-conversion
+CXXFLAGS += -Os -DNDEBUG
+CXXFLAGS += $(INC)
+
 EXPORTED_FUNCTIONS_EXTRA += ,\
 	_mp_js_do_exec,\
 	_mp_js_do_exec_async,\
