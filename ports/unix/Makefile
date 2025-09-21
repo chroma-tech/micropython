@@ -71,6 +71,9 @@ COPT += -fdata-sections -ffunction-sections
 # unless "DEBUG=1" or "STRIP=" is passed to make, see README.md for details.
 CFLAGS += -g
 
+CXXFLAGS += -std=c++17 $(INC) $(CWARN) -I$(VARIANT_DIR)
+
+
 ifndef DEBUG
 # _FORTIFY_SOURCE is a feature in gcc/glibc which is intended to provide extra
 # security for detecting buffer overflows. Some distros (Ubuntu at the very least)
