@@ -12,3 +12,4 @@ dependencies:
       - if: "idf_version >=5.3"
   idf:
     version: ">=5.2.0"
+  espressif/esp-dsp: "^1.7.0"
