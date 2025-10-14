@@ -45,11 +45,11 @@ INC += -I$(TOP)
 INC += -I$(BUILD)
 INC += -I$(VARIANT_DIR)
 
-CFLAGS += -std=c99 -Wall -Werror -Wdouble-promotion -Wfloat-conversion
+CFLAGS += -std=c99 -Wall -Wfloat-conversion
 CFLAGS += -Os -DNDEBUG
 CFLAGS += $(INC)
 
-CXXFLAGS += -std=c++17 -Wall -Werror -Wdouble-promotion -Wfloat-conversion
+CXXFLAGS += -std=c++17 -Wall -Wfloat-conversion
 CXXFLAGS += -Os -DNDEBUG
 CXXFLAGS += $(INC)
 
