@@ -332,11 +332,21 @@ static mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("esp_netif_attach failed"));
     }
 
-    // If MAC address is unset, set it to the address reserved for the ESP32 ETH interface
+    // If MAC address is unset, set it to the address reserved for the ESP32 ETH
+    // interface
     uint8_t mac_addr[6];
     esp_eth_ioctl(self->eth_handle, ETH_CMD_G_MAC_ADDR, mac_addr);
-    if ((mac_addr[0] | mac_addr[1] | mac_addr[2] | mac_addr[3] | mac_addr[4] | mac_addr[5]) == 0) {
-        esp_read_mac(mac_addr, ESP_MAC_ETH);  // Get ESP32 MAC address for ETH iface
+    bool all_ff = true;
+    for (size_t i = 0; i < sizeof(mac_addr); i++) {
+        if (mac_addr[i] != 0xFF) {
+        all_ff = false;
+        break;
+        }
+    }
+    bool all_zeros = (mac_addr[0] | mac_addr[1] | mac_addr[2] | mac_addr[3] |
+                        mac_addr[4] | mac_addr[5]) == 0;
+    if (all_ff || all_zeros) {
+        esp_read_mac(mac_addr, ESP_MAC_ETH); // Get ESP32 MAC address for ETH iface
         set_mac_address(self, mac_addr, sizeof(mac_addr));
     }
 
