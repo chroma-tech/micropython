@@ -28,8 +28,8 @@ if(NOT DEFINED MICROPY_PY_TINYUSB)
     endif()
 endif()
 
-# Enable error text compression by default.
-if(NOT MICROPY_ROM_TEXT_COMPRESSION)
+# Enable error text compression by default unless a board overrides it.
+if(NOT DEFINED MICROPY_ROM_TEXT_COMPRESSION)
     set(MICROPY_ROM_TEXT_COMPRESSION ON)
 endif()
 
