@@ -55,15 +55,14 @@ typedef struct _esp32_partition_obj_t {
 
 #if MICROPY_VFS_ROM_IOCTL
 
-static esp32_partition_obj_t esp32_partition_romfs_obj = {
-    .base = { .type = NULL },
-    .part = NULL,
-    .cache = NULL,
-    .block_size = NATIVE_BLOCK_SIZE_BYTES,
-};
+#define ESP32_PARTITION_ROMFS_MAX (8)
+#define ESP32_PARTITION_ROMFS_LABEL "romfs"
 
-static const void *esp32_partition_romfs_ptr = NULL;
-static esp_partition_mmap_handle_t esp32_partition_romfs_handle;
+static esp32_partition_obj_t esp32_partition_romfs_obj[ESP32_PARTITION_ROMFS_MAX];
+static const void *esp32_partition_romfs_ptr[ESP32_PARTITION_ROMFS_MAX];
+static esp_partition_mmap_handle_t esp32_partition_romfs_handle[ESP32_PARTITION_ROMFS_MAX];
+static size_t esp32_partition_romfs_count;
+static bool esp32_partition_romfs_scanned;
 
 #endif
 
@@ -131,18 +130,23 @@ static mp_obj_t esp32_partition_make_new(const mp_obj_type_t *type, size_t n_arg
 #if MICROPY_VFS_ROM_IOCTL
 static mp_int_t esp32_partition_get_buffer(mp_obj_t self_in, mp_buffer_info_t *bufinfo, mp_uint_t flags) {
     esp32_partition_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    if (self == &esp32_partition_romfs_obj && flags == MP_BUFFER_READ) {
-        if (esp32_partition_romfs_ptr == NULL) {
-            check_esp_err(esp_partition_mmap(self->part, 0, self->part->size, ESP_PARTITION_MMAP_DATA, &esp32_partition_romfs_ptr, &esp32_partition_romfs_handle));
+    if (flags == MP_BUFFER_READ) {
+        for (size_t i = 0; i < esp32_partition_romfs_count; ++i) {
+            if (self != &esp32_partition_romfs_obj[i]) {
+                continue;
+            }
+            if (esp32_partition_romfs_ptr[i] == NULL) {
+                check_esp_err(esp_partition_mmap(self->part, 0, self->part->size, ESP_PARTITION_MMAP_DATA, &esp32_partition_romfs_ptr[i], &esp32_partition_romfs_handle[i]));
+            }
+            bufinfo->buf = (void *)esp32_partition_romfs_ptr[i];
+            bufinfo->len = self->part->size;
+            bufinfo->typecode = 'B';
+            return 0;
         }
-        bufinfo->buf = (void *)esp32_partition_romfs_ptr;
-        bufinfo->len = self->part->size;
-        bufinfo->typecode = 'B';
-        return 0;
-    } else {
-        // Unsupported.
-        return 1;
     }
+
+    // Unsupported.
+    return 1;
 }
 #endif
 
@@ -337,30 +341,47 @@ MP_DEFINE_CONST_OBJ_TYPE(
 
 #if MICROPY_VFS_ROM_IOCTL
 
-mp_obj_t mp_vfs_rom_ioctl(size_t n_args, const mp_obj_t *args) {
-    if (esp32_partition_romfs_obj.base.type == NULL) {
-        esp32_partition_romfs_obj.base.type = &esp32_partition_type;
-        // Get the romfs partition.
-        // TODO: number of segments ioctl can be used if there is more than one romfs.
-        esp_partition_iterator_t iter = esp_partition_find(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "romfs");
-        if (iter != NULL) {
-            esp32_partition_romfs_obj.part = esp_partition_get(iter);
-        }
-        esp_partition_iterator_release(iter);
+static bool esp32_partition_is_romfs(const esp_partition_t *part) {
+    return strncmp(part->label, ESP32_PARTITION_ROMFS_LABEL, sizeof(ESP32_PARTITION_ROMFS_LABEL) - 1) == 0;
+}
+
+static void esp32_partition_romfs_scan(void) {
+    if (esp32_partition_romfs_scanned) {
+        return;
     }
+    esp32_partition_romfs_scanned = true;
+
+    esp_partition_iterator_t iter = esp_partition_find(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, NULL);
+    while (iter != NULL && esp32_partition_romfs_count < ESP32_PARTITION_ROMFS_MAX) {
+        const esp_partition_t *part = esp_partition_get(iter);
+        if (esp32_partition_is_romfs(part)) {
+            esp32_partition_obj_t *obj = &esp32_partition_romfs_obj[esp32_partition_romfs_count];
+            obj->base.type = &esp32_partition_type;
+            obj->part = part;
+            obj->cache = NULL;
+            obj->block_size = NATIVE_BLOCK_SIZE_BYTES;
+            esp32_partition_romfs_count++;
+        }
+        iter = esp_partition_next(iter);
+    }
+    esp_partition_iterator_release(iter);
+}
+
+mp_obj_t mp_vfs_rom_ioctl(size_t n_args, const mp_obj_t *args) {
+    esp32_partition_romfs_scan();
 
     switch (mp_obj_get_int(args[0])) {
         case MP_VFS_ROM_IOCTL_GET_NUMBER_OF_SEGMENTS:
-            if (esp32_partition_romfs_obj.part == NULL) {
-                return MP_OBJ_NEW_SMALL_INT(0);
-            } else {
-                return MP_OBJ_NEW_SMALL_INT(1);
-            }
+            return MP_OBJ_NEW_SMALL_INT(esp32_partition_romfs_count);
         case MP_VFS_ROM_IOCTL_GET_SEGMENT:
-            if (esp32_partition_romfs_obj.part == NULL) {
+            if (n_args < 2) {
+                return MP_OBJ_NEW_SMALL_INT(-MP_EINVAL);
+            }
+            mp_int_t romfs_id = mp_obj_get_int(args[1]);
+            if (romfs_id < 0 || (size_t)romfs_id >= esp32_partition_romfs_count) {
                 return MP_OBJ_NEW_SMALL_INT(-MP_EINVAL);
             } else {
-                return MP_OBJ_FROM_PTR(&esp32_partition_romfs_obj);
+                return MP_OBJ_FROM_PTR(&esp32_partition_romfs_obj[romfs_id]);
             }
         default:
             return MP_OBJ_NEW_SMALL_INT(-MP_EINVAL);
